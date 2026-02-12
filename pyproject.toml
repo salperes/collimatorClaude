@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "collimator-design-tool"
+version = "0.1.0"
+description = "X-Ray TIR Collimator Design Tool"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.6.0",
+    "pyqtgraph>=0.13.3",
+    "matplotlib>=3.8.0",
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
+    "reportlab>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-html>=4.0.0"]
+validation = ["xraylib>=4.0.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "benchmark: Benchmark validation tests (BM-X.Y)",
+    "integration: Integration tests (run before release)",
+    "validation: Cross-validation against xraylib independent reference",
+]

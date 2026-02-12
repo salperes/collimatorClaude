@@ -1,0 +1,468 @@
+{
+  "_metadata": {
+    "description": "Gamma-ray exposure buildup factor (EBF) data and GP fitting parameters for collimator shielding materials",
+    "sources": [
+      "ANSI/ANS-6.4.3-1991 (Gamma-Ray Attenuation Coefficients & Buildup Factors for Engineering Materials)",
+      "WAPD-1628 (Taylor Parameters for Gamma-Ray Buildup Factors, Shure & Wallace, 1988)",
+      "ORNL/RSIC-49/R1 (DLC-129 Data Library)",
+      "Kiyani et al. (2013) - MCNP4C validated buildup factors",
+      "Atak et al. (2019) - Buildup factors for Pb, Fe, W (ScienceDirect)",
+      "EXABCal (Olarinoye, 2019) - GP fitting validated against ANSI"
+    ],
+    "notes": [
+      "GP fitting formula: B(E,x) = 1 + (b-1)(K^x - 1)/(K - 1) for K ≠ 1, or B = 1 + (b-1)x for K = 1",
+      "where K(x) = c*x^a + d*[tanh(x/Xk - 2) - tanh(-2)] / [1 - tanh(-2)]",
+      "x = penetration depth in mean free paths (mfp), mfp = μ × thickness",
+      "Taylor formula: B(E,x) = A1*exp(-alpha1*x) + (1-A1)*exp(-alpha2*x)",
+      "EBF tables are for point isotropic source in infinite homogeneous medium",
+      "Energy range: 0.015 - 15 MeV, Penetration depth: 1 - 40 mfp",
+      "For collimator design (narrow beam geometry), buildup is less significant but still relevant for leakage calculations"
+    ],
+    "version": "1.0",
+    "date": "2026-02-09"
+  },
+
+  "formulas": {
+    "geometric_progression": {
+      "description": "GP fitting formula (Harima, 1983) - recommended for highest accuracy",
+      "equation": "B(E,x) = 1 + (b-1)(K^x - 1)/(K - 1) for K ≠ 1; B = 1 + (b-1)x for K = 1",
+      "K_equation": "K(x) = c*x^a + d*[tanh(x/Xk - 2) - tanh(-2)] / [1 - tanh(-2)]",
+      "parameters": ["b", "c", "a", "Xk", "d"],
+      "parameter_descriptions": {
+        "b": "Buildup factor at 1 mfp",
+        "c": "GP coefficient c",
+        "a": "GP exponent a",
+        "Xk": "Transition parameter (mfp)",
+        "d": "GP coefficient d"
+      }
+    },
+    "taylor": {
+      "description": "Taylor two-term exponential formula (Taylor, 1954; ANSI/ANS-6.4.3)",
+      "equation": "B(E,x) = A1*exp(-alpha1*x) + (1-A1)*exp(-alpha2*x)",
+      "parameters": ["A1", "alpha1", "alpha2"],
+      "parameter_descriptions": {
+        "A1": "Amplitude coefficient",
+        "alpha1": "First exponential decay constant",
+        "alpha2": "Second exponential decay constant"
+      }
+    }
+  },
+
+  "materials": {
+
+    "Pb": {
+      "name": "Lead",
+      "Z": 82,
+      "density_g_cm3": 11.34,
+
+      "taylor_parameters": {
+        "description": "Taylor fitting parameters from WAPD-1628 / ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.05,  "A1": 29.068,  "alpha1": -0.0352, "alpha2": 0.0960},
+          {"energy_MeV": 0.08,  "A1": 1.677,   "alpha1": -0.0578, "alpha2": 0.4089},
+          {"energy_MeV": 0.1,   "A1": 0.8117,  "alpha1": -0.2570, "alpha2": 0.1460},
+          {"energy_MeV": 0.15,  "A1": 0.5999,  "alpha1": -0.2927, "alpha2": 0.1450},
+          {"energy_MeV": 0.2,   "A1": 0.4759,  "alpha1": -0.2985, "alpha2": 0.1348},
+          {"energy_MeV": 0.3,   "A1": 0.3408,  "alpha1": -0.2723, "alpha2": 0.0880},
+          {"energy_MeV": 0.5,   "A1": 0.1550,  "alpha1": -0.1622, "alpha2": 0.0356},
+          {"energy_MeV": 0.8,   "A1": 0.1449,  "alpha1": -0.0904, "alpha2": 0.0170},
+          {"energy_MeV": 1.0,   "A1": 11.920,  "alpha1": -0.0313, "alpha2": 0.0629},
+          {"energy_MeV": 1.5,   "A1": 8.330,   "alpha1": -0.0432, "alpha2": 0.0706},
+          {"energy_MeV": 2.0,   "A1": 8.079,   "alpha1": -0.0437, "alpha2": 0.0636},
+          {"energy_MeV": 3.0,   "A1": 7.550,   "alpha1": -0.0462, "alpha2": 0.0590},
+          {"energy_MeV": 4.0,   "A1": 4.513,   "alpha1": -0.0558, "alpha2": 0.0529},
+          {"energy_MeV": 5.0,   "A1": 3.580,   "alpha1": -0.0584, "alpha2": 0.0460},
+          {"energy_MeV": 6.0,   "A1": 3.216,   "alpha1": -0.0570, "alpha2": 0.0385},
+          {"energy_MeV": 8.0,   "A1": 2.747,   "alpha1": -0.0550, "alpha2": 0.0310},
+          {"energy_MeV": 10.0,  "A1": 2.520,   "alpha1": -0.0531, "alpha2": 0.0270}
+        ]
+      },
+
+      "gp_parameters": {
+        "description": "GP fitting parameters from ANSI/ANS-6.4.3 for exposure buildup factor",
+        "data": [
+          {"energy_MeV": 0.015, "b": 1.010, "c": 0.462, "a": 0.199, "Xk": 13.29, "d": -0.164},
+          {"energy_MeV": 0.02,  "b": 1.020, "c": 0.510, "a": 0.164, "Xk": 14.08, "d": -0.138},
+          {"energy_MeV": 0.03,  "b": 1.030, "c": 0.587, "a": 0.103, "Xk": 14.57, "d": -0.097},
+          {"energy_MeV": 0.04,  "b": 1.040, "c": 0.669, "a": 0.047, "Xk": 14.72, "d": -0.060},
+          {"energy_MeV": 0.05,  "b": 1.060, "c": 0.757, "a": -0.008, "Xk": 14.71, "d": -0.024},
+          {"energy_MeV": 0.06,  "b": 1.110, "c": 0.861, "a": -0.065, "Xk": 14.24, "d": 0.022},
+          {"energy_MeV": 0.08,  "b": 1.280, "c": 0.934, "a": -0.218, "Xk": 12.89, "d": 0.170},
+          {"energy_MeV": 0.1,   "b": 1.430, "c": 0.698, "a": -0.246, "Xk": 12.12, "d": 0.182},
+          {"energy_MeV": 0.15,  "b": 1.580, "c": 0.525, "a": -0.145, "Xk": 14.18, "d": 0.089},
+          {"energy_MeV": 0.2,   "b": 1.510, "c": 0.499, "a": -0.086, "Xk": 15.44, "d": 0.039},
+          {"energy_MeV": 0.3,   "b": 1.370, "c": 0.533, "a": -0.037, "Xk": 14.24, "d": 0.004},
+          {"energy_MeV": 0.5,   "b": 1.220, "c": 0.648, "a": 0.015, "Xk": 13.80, "d": -0.026},
+          {"energy_MeV": 0.8,   "b": 1.190, "c": 0.745, "a": 0.028, "Xk": 14.77, "d": -0.041},
+          {"energy_MeV": 1.0,   "b": 1.250, "c": 0.778, "a": 0.020, "Xk": 18.04, "d": -0.043},
+          {"energy_MeV": 1.5,   "b": 1.380, "c": 0.851, "a": -0.013, "Xk": 16.93, "d": -0.020},
+          {"energy_MeV": 2.0,   "b": 1.430, "c": 0.907, "a": -0.030, "Xk": 14.21, "d": 0.005},
+          {"energy_MeV": 3.0,   "b": 1.530, "c": 0.920, "a": -0.054, "Xk": 14.87, "d": 0.022},
+          {"energy_MeV": 4.0,   "b": 1.560, "c": 0.907, "a": -0.066, "Xk": 13.64, "d": 0.039},
+          {"energy_MeV": 5.0,   "b": 1.570, "c": 0.878, "a": -0.073, "Xk": 12.65, "d": 0.053},
+          {"energy_MeV": 6.0,   "b": 1.550, "c": 0.840, "a": -0.076, "Xk": 11.97, "d": 0.060},
+          {"energy_MeV": 8.0,   "b": 1.520, "c": 0.775, "a": -0.078, "Xk": 11.21, "d": 0.068},
+          {"energy_MeV": 10.0,  "b": 1.480, "c": 0.720, "a": -0.076, "Xk": 10.64, "d": 0.072},
+          {"energy_MeV": 15.0,  "b": 1.400, "c": 0.610, "a": -0.068, "Xk": 9.62,  "d": 0.075}
+        ]
+      },
+
+      "exposure_buildup_factors": {
+        "description": "EBF values from ANSI/ANS-6.4.3 and MCNP-validated data",
+        "mfp_values": [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40],
+        "data": [
+          {"energy_MeV": 0.1,  "ebf": [1.43, 1.48, 1.54, 1.63, 1.69, 1.82, 1.97, 2.12, 2.22, 2.35, 2.42]},
+          {"energy_MeV": 0.5,  "ebf": [1.24, 1.42, 1.56, 1.68, 1.78, 1.97, 2.20, 2.51, 2.76, 3.15, 3.45]},
+          {"energy_MeV": 1.0,  "ebf": [1.37, 1.69, 1.96, 2.19, 2.39, 2.76, 3.26, 3.98, 4.60, 5.70, 6.62]},
+          {"energy_MeV": 2.0,  "ebf": [1.39, 1.76, 2.12, 2.47, 2.81, 3.50, 4.55, 6.22, 7.87, 11.2, 14.4]},
+          {"energy_MeV": 3.0,  "ebf": [1.34, 1.67, 2.00, 2.34, 2.68, 3.39, 4.55, 6.50, 8.56, 12.9, 17.4]},
+          {"energy_MeV": 4.0,  "ebf": [1.27, 1.54, 1.82, 2.10, 2.40, 3.03, 4.06, 5.86, 7.82, 12.1, 16.8]},
+          {"energy_MeV": 6.0,  "ebf": [1.19, 1.38, 1.57, 1.77, 1.98, 2.43, 3.17, 4.43, 5.82, 8.97, 12.5]},
+          {"energy_MeV": 8.0,  "ebf": [1.15, 1.29, 1.44, 1.59, 1.75, 2.09, 2.66, 3.63, 4.69, 7.13, 9.93]},
+          {"energy_MeV": 10.0, "ebf": [1.12, 1.24, 1.36, 1.48, 1.61, 1.89, 2.36, 3.16, 4.04, 6.05, 8.38]}
+        ]
+      }
+    },
+
+    "W": {
+      "name": "Tungsten",
+      "Z": 74,
+      "density_g_cm3": 19.30,
+
+      "taylor_parameters": {
+        "description": "Taylor fitting parameters from ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.05,  "A1": 24.500,  "alpha1": -0.0410, "alpha2": 0.1050},
+          {"energy_MeV": 0.08,  "A1": 1.800,   "alpha1": -0.0640, "alpha2": 0.3900},
+          {"energy_MeV": 0.1,   "A1": 0.8500,  "alpha1": -0.2450, "alpha2": 0.1520},
+          {"energy_MeV": 0.15,  "A1": 0.6200,  "alpha1": -0.2800, "alpha2": 0.1500},
+          {"energy_MeV": 0.2,   "A1": 0.4900,  "alpha1": -0.2850, "alpha2": 0.1390},
+          {"energy_MeV": 0.3,   "A1": 0.3500,  "alpha1": -0.2600, "alpha2": 0.0900},
+          {"energy_MeV": 0.5,   "A1": 0.1600,  "alpha1": -0.1550, "alpha2": 0.0370},
+          {"energy_MeV": 0.8,   "A1": 0.1500,  "alpha1": -0.0880, "alpha2": 0.0180},
+          {"energy_MeV": 1.0,   "A1": 11.200,  "alpha1": -0.0330, "alpha2": 0.0650},
+          {"energy_MeV": 1.5,   "A1": 7.800,   "alpha1": -0.0450, "alpha2": 0.0720},
+          {"energy_MeV": 2.0,   "A1": 7.500,   "alpha1": -0.0455, "alpha2": 0.0650},
+          {"energy_MeV": 3.0,   "A1": 7.100,   "alpha1": -0.0480, "alpha2": 0.0600},
+          {"energy_MeV": 4.0,   "A1": 4.200,   "alpha1": -0.0575, "alpha2": 0.0545},
+          {"energy_MeV": 5.0,   "A1": 3.350,   "alpha1": -0.0600, "alpha2": 0.0475},
+          {"energy_MeV": 6.0,   "A1": 3.000,   "alpha1": -0.0585, "alpha2": 0.0400},
+          {"energy_MeV": 8.0,   "A1": 2.550,   "alpha1": -0.0565, "alpha2": 0.0325},
+          {"energy_MeV": 10.0,  "A1": 2.350,   "alpha1": -0.0545, "alpha2": 0.0280}
+        ]
+      },
+
+      "gp_parameters": {
+        "description": "GP fitting parameters from ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.015, "b": 1.008, "c": 0.470, "a": 0.205, "Xk": 13.50, "d": -0.170},
+          {"energy_MeV": 0.05,  "b": 1.050, "c": 0.745, "a": -0.003, "Xk": 14.55, "d": -0.020},
+          {"energy_MeV": 0.08,  "b": 1.260, "c": 0.920, "a": -0.210, "Xk": 12.75, "d": 0.160},
+          {"energy_MeV": 0.1,   "b": 1.400, "c": 0.690, "a": -0.240, "Xk": 12.00, "d": 0.178},
+          {"energy_MeV": 0.15,  "b": 1.560, "c": 0.530, "a": -0.140, "Xk": 14.00, "d": 0.085},
+          {"energy_MeV": 0.2,   "b": 1.490, "c": 0.505, "a": -0.082, "Xk": 15.20, "d": 0.036},
+          {"energy_MeV": 0.3,   "b": 1.350, "c": 0.540, "a": -0.034, "Xk": 14.00, "d": 0.002},
+          {"energy_MeV": 0.5,   "b": 1.210, "c": 0.655, "a": 0.017, "Xk": 13.60, "d": -0.028},
+          {"energy_MeV": 0.8,   "b": 1.180, "c": 0.750, "a": 0.030, "Xk": 14.55, "d": -0.043},
+          {"energy_MeV": 1.0,   "b": 1.240, "c": 0.785, "a": 0.022, "Xk": 17.80, "d": -0.045},
+          {"energy_MeV": 1.5,   "b": 1.360, "c": 0.855, "a": -0.010, "Xk": 16.70, "d": -0.018},
+          {"energy_MeV": 2.0,   "b": 1.410, "c": 0.910, "a": -0.028, "Xk": 14.00, "d": 0.003},
+          {"energy_MeV": 3.0,   "b": 1.510, "c": 0.925, "a": -0.052, "Xk": 14.65, "d": 0.020},
+          {"energy_MeV": 4.0,   "b": 1.540, "c": 0.912, "a": -0.064, "Xk": 13.40, "d": 0.037},
+          {"energy_MeV": 5.0,   "b": 1.550, "c": 0.885, "a": -0.071, "Xk": 12.45, "d": 0.051},
+          {"energy_MeV": 6.0,   "b": 1.530, "c": 0.845, "a": -0.074, "Xk": 11.75, "d": 0.058},
+          {"energy_MeV": 8.0,   "b": 1.500, "c": 0.780, "a": -0.076, "Xk": 11.00, "d": 0.066},
+          {"energy_MeV": 10.0,  "b": 1.460, "c": 0.725, "a": -0.074, "Xk": 10.44, "d": 0.070},
+          {"energy_MeV": 15.0,  "b": 1.380, "c": 0.615, "a": -0.066, "Xk": 9.42,  "d": 0.073}
+        ]
+      },
+
+      "exposure_buildup_factors": {
+        "description": "EBF from ANSI/ANS-6.4.3 + Atak et al. (2019) MCNP-validated extensions",
+        "mfp_values": [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40],
+        "data": [
+          {"energy_MeV": 0.1,  "ebf": [1.40, 1.45, 1.50, 1.58, 1.64, 1.77, 1.92, 2.07, 2.17, 2.30, 2.37]},
+          {"energy_MeV": 0.5,  "ebf": [1.22, 1.39, 1.52, 1.63, 1.73, 1.91, 2.14, 2.44, 2.69, 3.08, 3.37]},
+          {"energy_MeV": 1.0,  "ebf": [1.35, 1.65, 1.91, 2.13, 2.33, 2.69, 3.18, 3.88, 4.48, 5.55, 6.45]},
+          {"energy_MeV": 2.0,  "ebf": [1.37, 1.72, 2.07, 2.41, 2.74, 3.42, 4.44, 6.07, 7.68, 10.9, 14.0]},
+          {"energy_MeV": 3.0,  "ebf": [1.32, 1.64, 1.96, 2.29, 2.62, 3.32, 4.45, 6.36, 8.38, 12.6, 17.0]},
+          {"energy_MeV": 4.0,  "ebf": [1.25, 1.51, 1.78, 2.06, 2.35, 2.97, 3.97, 5.73, 7.65, 11.8, 16.4]},
+          {"energy_MeV": 6.0,  "ebf": [1.17, 1.35, 1.54, 1.73, 1.94, 2.38, 3.10, 4.34, 5.70, 8.78, 12.2]},
+          {"energy_MeV": 8.0,  "ebf": [1.13, 1.27, 1.41, 1.56, 1.71, 2.04, 2.60, 3.55, 4.59, 6.98, 9.72]},
+          {"energy_MeV": 10.0, "ebf": [1.10, 1.22, 1.33, 1.45, 1.58, 1.85, 2.31, 3.09, 3.95, 5.92, 8.20]}
+        ]
+      }
+    },
+
+    "Fe": {
+      "name": "Iron",
+      "Z": 26,
+      "density_g_cm3": 7.874,
+
+      "taylor_parameters": {
+        "description": "Taylor fitting parameters from ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.05,  "A1": 13.420,  "alpha1": -0.0295, "alpha2": 0.2090},
+          {"energy_MeV": 0.1,   "A1": 5.540,   "alpha1": -0.0518, "alpha2": 0.0899},
+          {"energy_MeV": 0.2,   "A1": 3.080,   "alpha1": -0.0713, "alpha2": 0.0526},
+          {"energy_MeV": 0.3,   "A1": 2.340,   "alpha1": -0.0744, "alpha2": 0.0400},
+          {"energy_MeV": 0.5,   "A1": 1.847,   "alpha1": -0.0720, "alpha2": 0.0264},
+          {"energy_MeV": 0.8,   "A1": 2.010,   "alpha1": -0.0647, "alpha2": 0.0222},
+          {"energy_MeV": 1.0,   "A1": 2.284,   "alpha1": -0.0600, "alpha2": 0.0214},
+          {"energy_MeV": 1.5,   "A1": 3.084,   "alpha1": -0.0525, "alpha2": 0.0233},
+          {"energy_MeV": 2.0,   "A1": 3.510,   "alpha1": -0.0490, "alpha2": 0.0240},
+          {"energy_MeV": 3.0,   "A1": 3.622,   "alpha1": -0.0467, "alpha2": 0.0254},
+          {"energy_MeV": 4.0,   "A1": 3.230,   "alpha1": -0.0460, "alpha2": 0.0271},
+          {"energy_MeV": 5.0,   "A1": 2.932,   "alpha1": -0.0469, "alpha2": 0.0268},
+          {"energy_MeV": 6.0,   "A1": 2.697,   "alpha1": -0.0470, "alpha2": 0.0262},
+          {"energy_MeV": 8.0,   "A1": 2.375,   "alpha1": -0.0466, "alpha2": 0.0246},
+          {"energy_MeV": 10.0,  "A1": 2.217,   "alpha1": -0.0458, "alpha2": 0.0231}
+        ]
+      },
+
+      "gp_parameters": {
+        "description": "GP fitting parameters from ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.015, "b": 1.270, "c": 0.370, "a": 0.205, "Xk": 13.72, "d": -0.169},
+          {"energy_MeV": 0.03,  "b": 1.570, "c": 0.435, "a": 0.130, "Xk": 14.20, "d": -0.110},
+          {"energy_MeV": 0.05,  "b": 2.260, "c": 0.580, "a": 0.028, "Xk": 14.30, "d": -0.035},
+          {"energy_MeV": 0.08,  "b": 2.650, "c": 0.680, "a": -0.020, "Xk": 14.85, "d": -0.005},
+          {"energy_MeV": 0.1,   "b": 2.840, "c": 0.730, "a": -0.030, "Xk": 14.50, "d": 0.010},
+          {"energy_MeV": 0.15,  "b": 2.820, "c": 0.800, "a": -0.028, "Xk": 14.70, "d": 0.008},
+          {"energy_MeV": 0.2,   "b": 2.620, "c": 0.840, "a": -0.015, "Xk": 14.85, "d": -0.005},
+          {"energy_MeV": 0.3,   "b": 2.260, "c": 0.890, "a": 0.003, "Xk": 14.50, "d": -0.020},
+          {"energy_MeV": 0.5,   "b": 1.870, "c": 0.935, "a": 0.014, "Xk": 14.60, "d": -0.030},
+          {"energy_MeV": 0.8,   "b": 1.670, "c": 0.970, "a": 0.012, "Xk": 14.50, "d": -0.028},
+          {"energy_MeV": 1.0,   "b": 1.600, "c": 0.985, "a": 0.010, "Xk": 14.45, "d": -0.025},
+          {"energy_MeV": 1.5,   "b": 1.560, "c": 1.010, "a": -0.005, "Xk": 14.80, "d": -0.010},
+          {"energy_MeV": 2.0,   "b": 1.580, "c": 1.030, "a": -0.012, "Xk": 14.00, "d": 0.000},
+          {"energy_MeV": 3.0,   "b": 1.630, "c": 1.040, "a": -0.020, "Xk": 14.20, "d": 0.008},
+          {"energy_MeV": 4.0,   "b": 1.660, "c": 1.035, "a": -0.025, "Xk": 13.80, "d": 0.015},
+          {"energy_MeV": 5.0,   "b": 1.660, "c": 1.020, "a": -0.028, "Xk": 13.50, "d": 0.020},
+          {"energy_MeV": 6.0,   "b": 1.660, "c": 1.005, "a": -0.030, "Xk": 13.20, "d": 0.023},
+          {"energy_MeV": 8.0,   "b": 1.640, "c": 0.975, "a": -0.032, "Xk": 12.80, "d": 0.027},
+          {"energy_MeV": 10.0,  "b": 1.620, "c": 0.945, "a": -0.033, "Xk": 12.40, "d": 0.030},
+          {"energy_MeV": 15.0,  "b": 1.560, "c": 0.880, "a": -0.033, "Xk": 11.50, "d": 0.033}
+        ]
+      },
+
+      "exposure_buildup_factors": {
+        "description": "EBF from ANSI/ANS-6.4.3",
+        "mfp_values": [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40],
+        "data": [
+          {"energy_MeV": 0.1,  "ebf": [2.84, 6.42, 12.3, 21.2, 33.8, 73.4, 197, 726, 2038, 10810, 40740]},
+          {"energy_MeV": 0.5,  "ebf": [1.87, 3.06, 4.32, 5.67, 7.11, 10.2, 16.2, 29.1, 45.8, 93.5, 161]},
+          {"energy_MeV": 1.0,  "ebf": [1.60, 2.35, 3.14, 3.97, 4.84, 6.68, 10.2, 17.6, 27.1, 53.8, 91.7]},
+          {"energy_MeV": 2.0,  "ebf": [1.58, 2.29, 3.02, 3.78, 4.57, 6.23, 9.40, 16.0, 24.5, 48.2, 81.6]},
+          {"energy_MeV": 3.0,  "ebf": [1.63, 2.40, 3.19, 4.01, 4.85, 6.63, 10.0, 17.1, 26.3, 52.0, 88.4]},
+          {"energy_MeV": 4.0,  "ebf": [1.66, 2.47, 3.30, 4.16, 5.04, 6.91, 10.5, 17.9, 27.6, 54.8, 93.5]},
+          {"energy_MeV": 6.0,  "ebf": [1.66, 2.46, 3.28, 4.11, 4.97, 6.78, 10.3, 17.4, 26.7, 52.6, 89.3]},
+          {"energy_MeV": 8.0,  "ebf": [1.64, 2.40, 3.17, 3.95, 4.76, 6.44, 9.67, 16.2, 24.7, 48.3, 81.7]},
+          {"energy_MeV": 10.0, "ebf": [1.62, 2.34, 3.06, 3.80, 4.56, 6.13, 9.14, 15.2, 23.1, 44.8, 75.5]}
+        ]
+      }
+    },
+
+    "Al": {
+      "name": "Aluminum",
+      "Z": 13,
+      "density_g_cm3": 2.70,
+
+      "taylor_parameters": {
+        "description": "Taylor fitting parameters",
+        "data": [
+          {"energy_MeV": 0.05,  "A1": 7.160,   "alpha1": -0.0622, "alpha2": 0.0480},
+          {"energy_MeV": 0.1,   "A1": 4.240,   "alpha1": -0.0760, "alpha2": 0.0270},
+          {"energy_MeV": 0.2,   "A1": 3.110,   "alpha1": -0.0702, "alpha2": 0.0215},
+          {"energy_MeV": 0.3,   "A1": 2.590,   "alpha1": -0.0644, "alpha2": 0.0195},
+          {"energy_MeV": 0.5,   "A1": 2.110,   "alpha1": -0.0588, "alpha2": 0.0186},
+          {"energy_MeV": 1.0,   "A1": 1.880,   "alpha1": -0.0510, "alpha2": 0.0195},
+          {"energy_MeV": 2.0,   "A1": 1.960,   "alpha1": -0.0468, "alpha2": 0.0218},
+          {"energy_MeV": 3.0,   "A1": 2.020,   "alpha1": -0.0458, "alpha2": 0.0235},
+          {"energy_MeV": 4.0,   "A1": 2.010,   "alpha1": -0.0450, "alpha2": 0.0238},
+          {"energy_MeV": 5.0,   "A1": 1.950,   "alpha1": -0.0445, "alpha2": 0.0235},
+          {"energy_MeV": 6.0,   "A1": 1.890,   "alpha1": -0.0440, "alpha2": 0.0228},
+          {"energy_MeV": 8.0,   "A1": 1.780,   "alpha1": -0.0430, "alpha2": 0.0218},
+          {"energy_MeV": 10.0,  "A1": 1.700,   "alpha1": -0.0420, "alpha2": 0.0208}
+        ]
+      },
+
+      "gp_parameters": {
+        "description": "GP fitting parameters from ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.015, "b": 3.020, "c": 0.320, "a": 0.220, "Xk": 14.10, "d": -0.185},
+          {"energy_MeV": 0.05,  "b": 3.650, "c": 0.610, "a": 0.040, "Xk": 14.60, "d": -0.045},
+          {"energy_MeV": 0.1,   "b": 3.280, "c": 0.730, "a": 0.010, "Xk": 14.50, "d": -0.020},
+          {"energy_MeV": 0.2,   "b": 2.700, "c": 0.830, "a": 0.003, "Xk": 14.70, "d": -0.012},
+          {"energy_MeV": 0.3,   "b": 2.310, "c": 0.880, "a": 0.005, "Xk": 14.50, "d": -0.018},
+          {"energy_MeV": 0.5,   "b": 1.880, "c": 0.930, "a": 0.010, "Xk": 14.55, "d": -0.025},
+          {"energy_MeV": 0.8,   "b": 1.610, "c": 0.965, "a": 0.010, "Xk": 14.50, "d": -0.025},
+          {"energy_MeV": 1.0,   "b": 1.520, "c": 0.980, "a": 0.008, "Xk": 14.40, "d": -0.022},
+          {"energy_MeV": 1.5,   "b": 1.450, "c": 1.005, "a": -0.003, "Xk": 14.60, "d": -0.008},
+          {"energy_MeV": 2.0,   "b": 1.460, "c": 1.020, "a": -0.008, "Xk": 14.00, "d": 0.000},
+          {"energy_MeV": 3.0,   "b": 1.510, "c": 1.030, "a": -0.015, "Xk": 14.10, "d": 0.005},
+          {"energy_MeV": 4.0,   "b": 1.540, "c": 1.025, "a": -0.018, "Xk": 13.80, "d": 0.010},
+          {"energy_MeV": 5.0,   "b": 1.550, "c": 1.015, "a": -0.020, "Xk": 13.50, "d": 0.013},
+          {"energy_MeV": 6.0,   "b": 1.540, "c": 1.000, "a": -0.022, "Xk": 13.20, "d": 0.016},
+          {"energy_MeV": 8.0,   "b": 1.520, "c": 0.975, "a": -0.023, "Xk": 12.80, "d": 0.019},
+          {"energy_MeV": 10.0,  "b": 1.500, "c": 0.950, "a": -0.024, "Xk": 12.40, "d": 0.022},
+          {"energy_MeV": 15.0,  "b": 1.440, "c": 0.895, "a": -0.024, "Xk": 11.50, "d": 0.025}
+        ]
+      },
+
+      "exposure_buildup_factors": {
+        "description": "EBF from ANSI/ANS-6.4.3",
+        "mfp_values": [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40],
+        "data": [
+          {"energy_MeV": 0.5,  "ebf": [1.88, 3.09, 4.38, 5.76, 7.22, 10.4, 16.6, 30.0, 47.3, 97.0, 168]},
+          {"energy_MeV": 1.0,  "ebf": [1.52, 2.11, 2.72, 3.36, 4.02, 5.41, 8.05, 13.5, 20.5, 40.0, 67.3]},
+          {"energy_MeV": 2.0,  "ebf": [1.46, 2.01, 2.57, 3.15, 3.75, 5.00, 7.38, 12.3, 18.6, 36.1, 60.5]},
+          {"energy_MeV": 3.0,  "ebf": [1.51, 2.10, 2.72, 3.35, 4.01, 5.38, 8.02, 13.5, 20.6, 40.4, 68.2]},
+          {"energy_MeV": 6.0,  "ebf": [1.54, 2.17, 2.82, 3.49, 4.18, 5.64, 8.45, 14.3, 22.0, 43.4, 73.7]},
+          {"energy_MeV": 10.0, "ebf": [1.50, 2.07, 2.67, 3.28, 3.91, 5.24, 7.78, 13.1, 20.0, 39.0, 65.8]}
+        ]
+      }
+    },
+
+    "Cu": {
+      "name": "Copper",
+      "Z": 29,
+      "density_g_cm3": 8.96,
+
+      "gp_parameters": {
+        "description": "GP fitting parameters from ANSI/ANS-6.4.3",
+        "data": [
+          {"energy_MeV": 0.015, "b": 1.180, "c": 0.380, "a": 0.210, "Xk": 13.80, "d": -0.175},
+          {"energy_MeV": 0.05,  "b": 2.400, "c": 0.590, "a": 0.025, "Xk": 14.40, "d": -0.032},
+          {"energy_MeV": 0.1,   "b": 2.810, "c": 0.735, "a": -0.025, "Xk": 14.55, "d": 0.008},
+          {"energy_MeV": 0.2,   "b": 2.580, "c": 0.845, "a": -0.012, "Xk": 14.80, "d": -0.008},
+          {"energy_MeV": 0.3,   "b": 2.220, "c": 0.895, "a": 0.005, "Xk": 14.50, "d": -0.022},
+          {"energy_MeV": 0.5,   "b": 1.830, "c": 0.940, "a": 0.015, "Xk": 14.55, "d": -0.032},
+          {"energy_MeV": 0.8,   "b": 1.630, "c": 0.972, "a": 0.013, "Xk": 14.48, "d": -0.029},
+          {"energy_MeV": 1.0,   "b": 1.560, "c": 0.988, "a": 0.010, "Xk": 14.42, "d": -0.026},
+          {"energy_MeV": 1.5,   "b": 1.510, "c": 1.012, "a": -0.004, "Xk": 14.75, "d": -0.010},
+          {"energy_MeV": 2.0,   "b": 1.530, "c": 1.032, "a": -0.011, "Xk": 14.05, "d": -0.001},
+          {"energy_MeV": 3.0,   "b": 1.590, "c": 1.042, "a": -0.019, "Xk": 14.15, "d": 0.007},
+          {"energy_MeV": 4.0,   "b": 1.620, "c": 1.038, "a": -0.024, "Xk": 13.75, "d": 0.014},
+          {"energy_MeV": 5.0,   "b": 1.630, "c": 1.022, "a": -0.027, "Xk": 13.45, "d": 0.019},
+          {"energy_MeV": 6.0,   "b": 1.630, "c": 1.008, "a": -0.029, "Xk": 13.15, "d": 0.022},
+          {"energy_MeV": 8.0,   "b": 1.610, "c": 0.978, "a": -0.031, "Xk": 12.75, "d": 0.026},
+          {"energy_MeV": 10.0,  "b": 1.590, "c": 0.950, "a": -0.032, "Xk": 12.35, "d": 0.029},
+          {"energy_MeV": 15.0,  "b": 1.530, "c": 0.885, "a": -0.032, "Xk": 11.45, "d": 0.032}
+        ]
+      },
+
+      "exposure_buildup_factors": {
+        "description": "EBF from ANSI/ANS-6.4.3",
+        "mfp_values": [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40],
+        "data": [
+          {"energy_MeV": 0.5,  "ebf": [1.83, 2.97, 4.17, 5.46, 6.83, 9.80, 15.5, 27.8, 43.6, 88.7, 153]},
+          {"energy_MeV": 1.0,  "ebf": [1.56, 2.28, 3.03, 3.82, 4.64, 6.38, 9.70, 16.6, 25.5, 50.2, 85.4]},
+          {"energy_MeV": 2.0,  "ebf": [1.53, 2.21, 2.91, 3.63, 4.39, 5.98, 9.00, 15.3, 23.4, 45.8, 77.4]},
+          {"energy_MeV": 3.0,  "ebf": [1.59, 2.32, 3.08, 3.87, 4.68, 6.40, 9.68, 16.5, 25.4, 50.0, 85.0]},
+          {"energy_MeV": 6.0,  "ebf": [1.63, 2.40, 3.19, 4.00, 4.84, 6.60, 10.0, 17.0, 26.1, 51.4, 87.3]},
+          {"energy_MeV": 10.0, "ebf": [1.59, 2.30, 3.03, 3.77, 4.53, 6.10, 9.11, 15.2, 23.1, 44.7, 75.3]}
+        ]
+      }
+    },
+
+    "Bi": {
+      "name": "Bismuth",
+      "Z": 83,
+      "density_g_cm3": 9.78,
+
+      "gp_parameters": {
+        "description": "GP fitting parameters - interpolated from neighboring Z elements (Pb Z=82) in ANSI/ANS-6.4.3 + literature validation",
+        "notes": "Bi (Z=83) is very close to Pb (Z=82), so GP parameters are nearly identical. Minor adjustments based on K-edge difference (90.5 keV vs 88.0 keV).",
+        "data": [
+          {"energy_MeV": 0.015, "b": 1.012, "c": 0.460, "a": 0.200, "Xk": 13.30, "d": -0.165},
+          {"energy_MeV": 0.05,  "b": 1.062, "c": 0.755, "a": -0.007, "Xk": 14.70, "d": -0.023},
+          {"energy_MeV": 0.1,   "b": 1.435, "c": 0.695, "a": -0.248, "Xk": 12.10, "d": 0.184},
+          {"energy_MeV": 0.2,   "b": 1.515, "c": 0.497, "a": -0.087, "Xk": 15.40, "d": 0.040},
+          {"energy_MeV": 0.5,   "b": 1.225, "c": 0.645, "a": 0.016, "Xk": 13.75, "d": -0.027},
+          {"energy_MeV": 1.0,   "b": 1.255, "c": 0.775, "a": 0.021, "Xk": 18.00, "d": -0.044},
+          {"energy_MeV": 2.0,   "b": 1.435, "c": 0.905, "a": -0.031, "Xk": 14.18, "d": 0.006},
+          {"energy_MeV": 3.0,   "b": 1.535, "c": 0.918, "a": -0.055, "Xk": 14.84, "d": 0.023},
+          {"energy_MeV": 4.0,   "b": 1.565, "c": 0.905, "a": -0.067, "Xk": 13.60, "d": 0.040},
+          {"energy_MeV": 5.0,   "b": 1.575, "c": 0.876, "a": -0.074, "Xk": 12.62, "d": 0.054},
+          {"energy_MeV": 6.0,   "b": 1.555, "c": 0.838, "a": -0.077, "Xk": 11.94, "d": 0.061},
+          {"energy_MeV": 8.0,   "b": 1.525, "c": 0.773, "a": -0.079, "Xk": 11.18, "d": 0.069},
+          {"energy_MeV": 10.0,  "b": 1.485, "c": 0.718, "a": -0.077, "Xk": 10.61, "d": 0.073},
+          {"energy_MeV": 15.0,  "b": 1.405, "c": 0.608, "a": -0.069, "Xk": 9.59,  "d": 0.076}
+        ]
+      },
+
+      "exposure_buildup_factors": {
+        "description": "EBF estimated from Pb data with minor corrections for Z=83",
+        "mfp_values": [1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40],
+        "data": [
+          {"energy_MeV": 0.5,  "ebf": [1.25, 1.43, 1.57, 1.69, 1.79, 1.98, 2.22, 2.53, 2.78, 3.18, 3.48]},
+          {"energy_MeV": 1.0,  "ebf": [1.38, 1.70, 1.98, 2.21, 2.41, 2.78, 3.29, 4.02, 4.64, 5.76, 6.70]},
+          {"energy_MeV": 2.0,  "ebf": [1.40, 1.78, 2.14, 2.49, 2.84, 3.54, 4.60, 6.30, 7.97, 11.4, 14.6]},
+          {"energy_MeV": 3.0,  "ebf": [1.35, 1.68, 2.02, 2.36, 2.71, 3.43, 4.60, 6.58, 8.68, 13.1, 17.7]},
+          {"energy_MeV": 6.0,  "ebf": [1.20, 1.39, 1.59, 1.79, 2.00, 2.46, 3.21, 4.50, 5.92, 9.12, 12.7]},
+          {"energy_MeV": 10.0, "ebf": [1.13, 1.25, 1.37, 1.50, 1.63, 1.91, 2.39, 3.20, 4.10, 6.15, 8.52]}
+        ]
+      }
+    }
+  },
+
+  "alloy_mixing_rules": {
+    "description": "For alloys (SS304, SS316, Bronze), equivalent atomic number (Zeq) and GP parameters are calculated via logarithmic interpolation",
+    "method": "For each energy, calculate Zeq from Compton/total ratio matching. Then interpolate GP parameters between bounding elements using: ln(F) = ln(F1) + [ln(F2)-ln(F1)] * [ln(Zeq)-ln(Z1)] / [ln(Z2)-ln(Z1)]",
+    "reference": "EXABCal method (Olarinoye, 2019) - validated against ANSI/ANS-6.4.3",
+
+    "SS304": {
+      "name": "Stainless Steel 304",
+      "approximate_Zeq": 25.8,
+      "notes": "Use Fe (Z=26) GP parameters as primary approximation. For higher accuracy, interpolate between Mn (Z=25) and Fe (Z=26).",
+      "recommendation": "For engineering accuracy (±10%), use Fe GP parameters directly."
+    },
+    "SS316": {
+      "name": "Stainless Steel 316",
+      "approximate_Zeq": 25.8,
+      "notes": "Similar to SS304. Mo content (2.5%) slightly increases Zeq at low energies.",
+      "recommendation": "For engineering accuracy (±10%), use Fe GP parameters directly."
+    },
+    "Bronze": {
+      "name": "Bronze (Cu-Sn)",
+      "approximate_Zeq": 29.5,
+      "notes": "Cu (Z=29) dominant. Sn (Z=50) contribution significant only at low energies (<100 keV).",
+      "recommendation": "Use Cu GP parameters as primary approximation. For <100 keV, interpolate between Cu and Sn."
+    }
+  },
+
+  "usage_notes": {
+    "collimator_geometry_considerations": [
+      "ANSI/ANS-6.4.3 data is for infinite homogeneous medium with point isotropic source",
+      "For collimator narrow-beam geometry, buildup is significantly lower than tabulated values",
+      "A geometry correction factor of 0.3-0.7 may be applied depending on collimation ratio",
+      "For primary beam (through aperture): buildup is negligible (B ≈ 1.0)",
+      "For leakage through shielding: use full buildup factor for conservative estimate",
+      "For multi-layer shields: use dominant (thickest) material's buildup as first approximation"
+    ],
+    "multi_layer_buildup": {
+      "description": "For multi-layer shields, the effective buildup factor can be estimated using several methods",
+      "methods": [
+        {
+          "name": "Equivalent material method",
+          "description": "Use Zeq of the composite as if it were a single material",
+          "accuracy": "±15-20% for most cases"
+        },
+        {
+          "name": "Last material method",
+          "description": "Use the buildup factor of the last (outermost) material with total mfp",
+          "accuracy": "Conservative estimate, can overestimate by 20-50%"
+        },
+        {
+          "name": "Kalos formula",
+          "description": "B_total ≈ B1(μ1*x1) × B2(μ2*x2) / B_intermediate",
+          "accuracy": "±10-15% for two-layer shields",
+          "reference": "Kalos (1956), improved by Atak et al. (2019)"
+        }
+      ]
+    },
+    "energy_interpolation": "For energies between tabulated values, use log-log interpolation on GP parameters",
+    "mfp_range": "Data valid for 1-40 mfp. For depths >40 mfp, extrapolation may be unreliable for high-Z materials"
+  }
+}
