@@ -1,0 +1,60 @@
+{
+  "targets": {
+    "W": {
+      "Z": 74,
+      "name": "Tungsten",
+      "density_gcm3": 19.3,
+      "k_edge_keV": 69.525,
+      "char_lines": [
+        {"name": "Ka1", "energy_keV": 59.32, "relative_intensity": 1.00},
+        {"name": "Ka2", "energy_keV": 57.98, "relative_intensity": 0.58},
+        {"name": "Kb1", "energy_keV": 67.24, "relative_intensity": 0.25},
+        {"name": "Kb2", "energy_keV": 69.07, "relative_intensity": 0.06}
+      ]
+    },
+    "Mo": {
+      "Z": 42,
+      "name": "Molybdenum",
+      "density_gcm3": 10.28,
+      "k_edge_keV": 20.00,
+      "char_lines": [
+        {"name": "Ka1", "energy_keV": 17.48, "relative_intensity": 1.00},
+        {"name": "Ka2", "energy_keV": 17.37, "relative_intensity": 0.52},
+        {"name": "Kb1", "energy_keV": 19.61, "relative_intensity": 0.15}
+      ]
+    },
+    "Rh": {
+      "Z": 45,
+      "name": "Rhodium",
+      "density_gcm3": 12.41,
+      "k_edge_keV": 23.22,
+      "char_lines": [
+        {"name": "Ka1", "energy_keV": 20.22, "relative_intensity": 1.00},
+        {"name": "Ka2", "energy_keV": 20.07, "relative_intensity": 0.52},
+        {"name": "Kb1", "energy_keV": 22.72, "relative_intensity": 0.15}
+      ]
+    },
+    "Cu": {
+      "Z": 29,
+      "name": "Copper",
+      "density_gcm3": 8.96,
+      "k_edge_keV": 8.979,
+      "char_lines": [
+        {"name": "Ka1", "energy_keV": 8.048, "relative_intensity": 1.00},
+        {"name": "Ka2", "energy_keV": 8.028, "relative_intensity": 0.51},
+        {"name": "Kb1", "energy_keV": 8.905, "relative_intensity": 0.13}
+      ]
+    },
+    "Ag": {
+      "Z": 47,
+      "name": "Silver",
+      "density_gcm3": 10.49,
+      "k_edge_keV": 25.51,
+      "char_lines": [
+        {"name": "Ka1", "energy_keV": 22.16, "relative_intensity": 1.00},
+        {"name": "Ka2", "energy_keV": 21.99, "relative_intensity": 0.53},
+        {"name": "Kb1", "energy_keV": 24.94, "relative_intensity": 0.15}
+      ]
+    }
+  }
+}

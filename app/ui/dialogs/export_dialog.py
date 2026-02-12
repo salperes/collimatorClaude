@@ -13,7 +13,13 @@ from PyQt6.QtWidgets import (
 class ExportDialog(QDialog):
     """Universal export dialog with format selection and options."""
 
-    def __init__(self, has_simulation: bool = False, parent=None):
+    def __init__(
+        self,
+        has_simulation: bool = False,
+        has_compton: bool = False,
+        has_validation: bool = False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Disa Aktar")
         self.setMinimumWidth(450)
@@ -59,11 +65,20 @@ class ExportDialog(QDialog):
             ("D", "Build-up Analizi"),
             ("E", "Isin Profili"),
             ("F", "Kalite Metrikleri"),
+            ("G", "Compton Analizi"),
+            ("H", "Model Varsayimlari"),
+            ("I", "Dogrulama Ozeti"),
         ]
         for code, label in sections:
             cb = QCheckBox(f"{code} — {label}")
             cb.setChecked(True)
             if code in ("E", "F") and not has_simulation:
+                cb.setChecked(False)
+                cb.setEnabled(False)
+            if code == "G" and not has_compton:
+                cb.setChecked(False)
+                cb.setEnabled(False)
+            if code == "I" and not has_validation:
                 cb.setChecked(False)
                 cb.setEnabled(False)
             self._section_checks[code] = cb

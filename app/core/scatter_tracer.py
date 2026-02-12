@@ -239,9 +239,11 @@ class ScatterTracer:
                         if E_scattered < config.min_energy_cutoff_keV:
                             continue
 
-                        # 2D projection: azimuthal angle → sign choice
-                        sign = 1.0 if phi < math.pi else -1.0
-                        scatter_angle = float(angle) + sign * theta
+                        # 2D projection: project 3D scatter cone onto 2D plane.
+                        # The polar angle theta defines the cone half-angle,
+                        # and cos(phi) gives the lateral component in the
+                        # collimator cross-section plane.
+                        scatter_angle = float(angle) + theta * math.cos(phi)
 
                         # Check if scatter ray direction reaches detector
                         # Detector is below stages (larger Y). The ray must

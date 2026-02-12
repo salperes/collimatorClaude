@@ -11,6 +11,8 @@ Reference: Phase-07 spec — Canvas Visualization.
 
 from __future__ import annotations
 
+import random
+
 from PyQt6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem, QWidget
 from PyQt6.QtCore import QRectF, QPointF, QLineF, Qt
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush
@@ -60,8 +62,12 @@ class ScatterOverlayItem(QGraphicsItem):
         self._points.clear()
         self._ray_lines.clear()
 
-        # Limit display count
-        display = interactions[: self._max_display]
+        # Randomly sample interactions for display (avoid left-side bias
+        # from sequential ray ordering)
+        if len(interactions) > self._max_display:
+            display = random.sample(interactions, self._max_display)
+        else:
+            display = list(interactions)
 
         xs: list[float] = []
         ys: list[float] = []

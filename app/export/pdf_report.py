@@ -1,8 +1,9 @@
 """PDF report generator — ReportLab multi-section report.
 
-Generates A4 PDF with sections A–F (G–I deferred):
+Generates A4 PDF with sections A–I:
   Cover, Geometry, Stages & Layers, Attenuation, Build-up,
-  Beam Profile, Quality Metrics.
+  Beam Profile, Quality Metrics, Compton Analysis,
+  Model Assumptions, Validation Summary.
 
 Charts are passed as pre-rendered PNG bytes (no pyqtgraph/matplotlib import).
 
@@ -29,6 +30,7 @@ from reportlab.platypus import (
 )
 
 from app.constants import APP_NAME, APP_VERSION
+from app.models.compton import ComptonAnalysis
 from app.models.geometry import CollimatorGeometry
 from app.models.simulation import SimulationResult
 
@@ -85,6 +87,8 @@ class PdfReportExporter:
         include_sections: list[str] | None = None,
         chart_images: dict[str, bytes] | None = None,
         canvas_image: bytes | None = None,
+        compton_result: ComptonAnalysis | None = None,
+        validation_results: list[dict] | None = None,
     ) -> None:
         """Build and save PDF report.
 
@@ -92,9 +96,11 @@ class PdfReportExporter:
             geometry: The collimator design.
             simulation_result: Simulation data (None = skip E,F).
             output_path: File path for output PDF.
-            include_sections: Section codes ["A","B","C","D","E","F"].
+            include_sections: Section codes ["A".."I"].
             chart_images: Pre-rendered charts as {name: png_bytes}.
             canvas_image: Pre-rendered canvas screenshot bytes.
+            compton_result: Compton analysis data (None = skip G).
+            validation_results: Validation test dicts (None = skip I).
         """
         if include_sections is None:
             include_sections = ["A", "B", "C", "D", "E", "F"]
@@ -136,6 +142,18 @@ class PdfReportExporter:
 
         if "F" in include_sections and simulation_result:
             story.extend(self._build_section_f(simulation_result))
+
+        if "G" in include_sections:
+            story.append(PageBreak())
+            story.extend(self._build_section_g(compton_result, chart_images))
+
+        if "H" in include_sections:
+            story.append(PageBreak())
+            story.extend(self._build_section_h(simulation_result))
+
+        if "I" in include_sections:
+            story.append(PageBreak())
+            story.extend(self._build_section_i(validation_results))
 
         doc.build(story, onFirstPage=self._add_footer, onLaterPages=self._add_footer)
 
@@ -371,6 +389,159 @@ class PdfReportExporter:
         verdict = "TUM METRIKLER UYGUN" if qm.all_pass else "BAZI METRIKLER YETERSIZ"
         story.append(Spacer(1, 4 * mm))
         story.append(Paragraph(f"<b>Genel Sonuc: {verdict}</b>", self._styles["BodyText2"]))
+
+        return story
+
+    # ------------------------------------------------------------------
+    # Section G — Compton Analysis
+    # ------------------------------------------------------------------
+
+    def _build_section_g(
+        self,
+        compton_result: ComptonAnalysis | None,
+        chart_images: dict[str, bytes],
+    ) -> list:
+        story = [
+            Paragraph("G — Compton Analizi", self._styles["SectionTitle"]),
+        ]
+
+        if compton_result is None:
+            story.append(Paragraph(
+                "Compton analizi verisi mevcut degil.",
+                self._styles["BodyText2"],
+            ))
+            return story
+
+        # Summary table
+        data = [
+            ["Parametre", "Deger"],
+            ["Gelen Enerji", f"{compton_result.incident_energy_keV:.1f} keV"],
+            ["Toplam Tesir Kesiti", f"{compton_result.total_cross_section:.4e} cm\u00B2"],
+            ["SPR", f"{compton_result.scatter_to_primary_ratio:.4f}"],
+        ]
+        table = Table(data, colWidths=[80 * mm, 80 * mm])
+        table.setStyle(self._table_style())
+        story.append(table)
+        story.append(Spacer(1, 6 * mm))
+
+        # Chart images (if provided)
+        for key, label in [
+            ("compton_polar", "Klein-Nishina Polar Dagilim"),
+            ("compton_spectrum", "Sacilma Enerji Spektrumu"),
+            ("compton_spr", "SPR Profili"),
+        ]:
+            if key in chart_images:
+                story.append(Paragraph(label, self._styles["SubSection"]))
+                img = Image(BytesIO(chart_images[key]), width=150 * mm, height=80 * mm)
+                img.hAlign = "CENTER"
+                story.append(img)
+                story.append(Spacer(1, 6 * mm))
+
+        return story
+
+    # ------------------------------------------------------------------
+    # Section H — Model Assumptions & Warnings
+    # ------------------------------------------------------------------
+
+    def _build_section_h(self, result: SimulationResult | None) -> list:
+        story = [
+            Paragraph("H — Model Varsayimlari ve Uyarilar", self._styles["SectionTitle"]),
+        ]
+
+        # Physics models
+        story.append(Paragraph("Fizik Modeli", self._styles["SubSection"]))
+        models_data = [
+            ["Model", "Aciklama"],
+            ["Zayiflama", "Beer-Lambert (narrow-beam geometri)"],
+            ["Veri Kaynagi", "NIST XCOM (log-log interpolasyon)"],
+            ["Build-up", "GP (Geometric Progression) formulu"],
+            ["Compton", "Klein-Nishina diferansiyel tesir kesiti"],
+            ["Scatter", "Monte Carlo tek-sacilma yaklasimi"],
+            ["Alisim", "Karisim kurali: (mu/rho)_alloy = SUM(w_i * (mu/rho)_i)"],
+        ]
+        table = Table(models_data, colWidths=[50 * mm, 110 * mm])
+        table.setStyle(self._table_style())
+        story.append(table)
+        story.append(Spacer(1, 6 * mm))
+
+        # Limitations
+        story.append(Paragraph("Kisitlamalar", self._styles["SubSection"]))
+        limits_data = [
+            ["Kisitlama", "Detay"],
+            ["Enerji Araligi", "1 keV \u2013 20 MeV"],
+            ["Geometri", "2D kesit, simetri varsayimi"],
+            ["Scatter", "Tek sacilma; coklu sacilma ihmal edilir"],
+            ["Malzeme", "Homojen; karisim kurali (agirlikli oran)"],
+            ["LINAC Modu", "MeV modunda bremsstrahlung spektrum yaklasimi"],
+            ["Polarizasyon", "Ihmal edilir (non-polarize kaynak)"],
+        ]
+        table = Table(limits_data, colWidths=[50 * mm, 110 * mm])
+        table.setStyle(self._table_style())
+        story.append(table)
+        story.append(Spacer(1, 6 * mm))
+
+        # Simulation-specific notes
+        if result:
+            notes = []
+            if result.include_buildup:
+                notes.append("Build-up faktoru dahil edilmistir (GP yontemi).")
+            else:
+                notes.append("Build-up faktoru devre disidir.")
+            if result.scatter_result:
+                notes.append("Compton scatter simulasyonu dahil edilmistir.")
+            else:
+                notes.append("Compton scatter simulasyonu dahil edilmemistir.")
+            for note in notes:
+                story.append(Paragraph(f"\u2022 {note}", self._styles["BodyText2"]))
+
+        return story
+
+    # ------------------------------------------------------------------
+    # Section I — Validation Summary
+    # ------------------------------------------------------------------
+
+    def _build_section_i(self, validation_results: list[dict] | None) -> list:
+        story = [
+            Paragraph("I — Dogrulama Ozeti", self._styles["SectionTitle"]),
+        ]
+
+        if not validation_results:
+            story.append(Paragraph(
+                "Dogrulama testi calistirilmamis.",
+                self._styles["BodyText2"],
+            ))
+            return story
+
+        data = [["Test ID", "Grup", "Bizim", "Referans", "Fark%", "Durum"]]
+        for r in validation_results:
+            status = r.get("status", "?")
+            our = r.get("our_value", 0)
+            ref = r.get("ref_value", 0)
+            our_str = f"{our:.4g}" if isinstance(our, float) else str(our)
+            ref_str = f"{ref:.4g}" if isinstance(ref, float) else str(ref)
+            diff_str = f"{r.get('diff_pct', 0):.2f}" if "diff_pct" in r else ""
+            data.append([
+                r.get("test_id", ""),
+                r.get("group", ""),
+                our_str,
+                ref_str,
+                diff_str,
+                status,
+            ])
+
+        table = Table(data, colWidths=[30 * mm, 25 * mm, 30 * mm, 30 * mm, 20 * mm, 25 * mm])
+        table.setStyle(self._table_style())
+        story.append(table)
+
+        # Summary counts
+        total = len(validation_results)
+        passed = sum(1 for r in validation_results if r.get("status") == "PASS")
+        failed = sum(1 for r in validation_results if r.get("status") == "FAIL")
+        story.append(Spacer(1, 4 * mm))
+        story.append(Paragraph(
+            f"<b>Toplam: {total} | Basarili: {passed} | Basarisiz: {failed}</b>",
+            self._styles["BodyText2"],
+        ))
 
         return story
 

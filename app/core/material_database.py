@@ -29,6 +29,7 @@ _MATERIAL_FILES: dict[str, str] = {
     "Bi": "bismuth.json",
     "Al": "aluminum.json",
     "Cu": "copper.json",
+    "Be": "beryllium.json",
     "SS304": "steel_304.json",
     "SS316": "steel_316.json",
     "Bronze": "bronze.json",

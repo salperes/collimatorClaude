@@ -10,10 +10,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QScrollArea, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData
+from PyQt6.QtGui import QColor, QDrag
 
-from app.constants import MATERIAL_IDS
+from app.constants import MATERIAL_IDS, MATERIAL_MIME_TYPE
 from app.ui.styles.colors import MATERIAL_COLORS
 
 
@@ -39,6 +39,7 @@ class MaterialCard(QFrame):
         super().__init__(parent)
         self._material_id = material_id
         self._expanded = False
+        self._drag_start = None
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
@@ -83,8 +84,26 @@ class MaterialCard(QFrame):
         layout.addWidget(detail)
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.pos()
         self.clicked.emit(self._material_id)
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if self._drag_start is None:
+            return
+        if (event.pos() - self._drag_start).manhattanLength() < 10:
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(MATERIAL_MIME_TYPE, self._material_id.encode())
+        drag.setMimeData(mime)
+        pixmap = self.grab()
+        drag.setPixmap(pixmap.scaledToWidth(min(pixmap.width(), 150)))
+        drag.setHotSpot(event.pos())
+        drag.exec(Qt.DropAction.CopyAction)
 
 
 class MaterialPanel(QWidget):

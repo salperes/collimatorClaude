@@ -5,6 +5,7 @@ Reference: FRD §6 — UI/UX Design, §4.2 FR-2.2.
 
 from PyQt6.QtWidgets import (
     QToolBar, QToolButton, QLabel, QSlider, QWidget, QHBoxLayout, QMenu,
+    QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -36,9 +37,11 @@ class MainToolBar(QToolBar):
     custom_template_requested = pyqtSignal()  # blank geometry
     energy_changed = pyqtSignal(float)  # keV
     energy_mode_changed = pyqtSignal(str)  # "kVp" or "MeV"
+    tube_config_changed = pyqtSignal()  # target, window, or energy changed
     compare_requested = pyqtSignal()  # multi-energy compare
     threshold_edit_requested = pyqtSignal()  # G-10: edit quality thresholds
     validation_requested = pyqtSignal()  # run physics validation tests
+    about_requested = pyqtSignal()  # show about dialog
 
     # Phase 6: File menu signals
     new_requested = pyqtSignal()
@@ -142,6 +145,27 @@ class MainToolBar(QToolBar):
         self._btn_presets.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         energy_layout.addWidget(self._btn_presets)
 
+        # Target material selector (kVp mode only)
+        self._combo_target = QComboBox()
+        self._combo_target.setToolTip("X-ray tup target malzemesi")
+        self._combo_target.addItem("W (Tungsten)", "W")
+        self._combo_target.addItem("Mo (Molibden)", "Mo")
+        self._combo_target.addItem("Rh (Rodyum)", "Rh")
+        self._combo_target.addItem("Cu (Bakir)", "Cu")
+        self._combo_target.addItem("Ag (Gumus)", "Ag")
+        self._combo_target.setCurrentIndex(0)
+        self._combo_target.currentIndexChanged.connect(self._on_tube_param_changed)
+        energy_layout.addWidget(self._combo_target)
+
+        # Window type selector (kVp mode only)
+        self._combo_window = QComboBox()
+        self._combo_window.setToolTip("Tup pencere tipi")
+        self._combo_window.addItem("Cam (1mm Al-eq)", "glass")
+        self._combo_window.addItem("Be (0.5mm)", "Be")
+        self._combo_window.setCurrentIndex(0)
+        self._combo_window.currentIndexChanged.connect(self._on_tube_param_changed)
+        energy_layout.addWidget(self._combo_window)
+
         self.addWidget(energy_widget)
 
         # Initialize slider for kVp mode
@@ -218,6 +242,15 @@ class MainToolBar(QToolBar):
         self._btn_fit.setToolTip("Tüm içeriğe zoom yap (F)")
         self.addWidget(self._btn_fit)
 
+        self.addSeparator()
+
+        # About button
+        self._btn_about = QToolButton()
+        self._btn_about.setText("Hakkinda")
+        self._btn_about.setToolTip("Uygulama hakkinda bilgi")
+        self._btn_about.clicked.connect(self.about_requested.emit)
+        self.addWidget(self._btn_about)
+
     # ── Energy mode & presets ────────────────────────────────────────
 
     def _on_mode_toggled(self, checked: bool) -> None:
@@ -225,6 +258,10 @@ class MainToolBar(QToolBar):
         self._energy_mode = "MeV" if checked else "kVp"
         self._btn_mode.setText(self._energy_mode)
         self._apply_mode_settings()
+        # Target/window selectors only relevant in kVp mode
+        is_kvp = self._energy_mode == "kVp"
+        self._combo_target.setVisible(is_kvp)
+        self._combo_window.setVisible(is_kvp)
         self.energy_mode_changed.emit(self._energy_mode)
         # Re-emit energy with new conversion
         self._on_energy_changed(self._slider_energy.value())
@@ -264,13 +301,21 @@ class MainToolBar(QToolBar):
         self._update_energy_label(value)
         keV = self.get_energy_keV()
         self.energy_changed.emit(keV)
+        if self._energy_mode == "kVp":
+            self.tube_config_changed.emit()
+
+    def _on_tube_param_changed(self) -> None:
+        """Target or window type changed — update label and emit signal."""
+        self._update_energy_label(self._slider_energy.value())
+        self.tube_config_changed.emit()
 
     def _update_energy_label(self, slider_value: int) -> None:
         """Update the energy label based on mode and slider value."""
         if self._energy_mode == "kVp":
             eff = effective_energy_kVp(slider_value)
+            target = self._combo_target.currentData()
             self._lbl_energy_value.setText(
-                f"{slider_value} kVp (eff. {eff:.0f} keV)"
+                f"{slider_value} kVp (eff. {eff:.0f} keV, {target})"
             )
         else:
             mev = slider_value / 1000.0
@@ -338,3 +383,18 @@ class MainToolBar(QToolBar):
     def get_slider_raw(self) -> int:
         """Raw slider value (kVp or keV depending on mode)."""
         return self._slider_energy.value()
+
+    def get_target_id(self) -> str:
+        """Current X-ray tube target material ID (e.g. 'W', 'Mo')."""
+        return self._combo_target.currentData() or "W"
+
+    def get_window_type(self) -> str:
+        """Current tube window type: 'glass' or 'Be'."""
+        return self._combo_window.currentData() or "glass"
+
+    def get_window_thickness_mm(self) -> float:
+        """Window thickness [mm] based on current selection."""
+        wt = self.get_window_type()
+        if wt == "Be":
+            return 0.5
+        return 1.0  # glass (Al-equivalent)

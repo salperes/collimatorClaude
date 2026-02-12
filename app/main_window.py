@@ -45,6 +45,7 @@ from app.models.simulation import SimulationConfig
 from app.ui.charts.attenuation_chart import AttenuationChartWidget
 from app.ui.charts.compton_widget import ComptonWidget
 from app.ui.charts.hvl_chart import HvlChartWidget
+from app.ui.charts.spectrum_chart import SpectrumChartWidget
 from app.ui.charts.spr_chart import SprChartWidget
 from app.ui.charts.transmission_chart import TransmissionChartWidget
 from app.ui.dialogs.compare_dialog import CompareDialog
@@ -281,6 +282,12 @@ class MainWindow(QMainWindow):
         # Phase 8: Validation
         self._toolbar.validation_requested.connect(self._on_run_validation)
 
+        # Spectrum chart: update when tube config changes
+        self._toolbar.tube_config_changed.connect(self._on_tube_config_changed)
+
+        # About dialog
+        self._toolbar.about_requested.connect(self._on_about)
+
         # Phase 6: File menu signals
         self._toolbar.new_requested.connect(self._on_new)
         self._toolbar.open_requested.connect(self._on_open)
@@ -354,6 +361,10 @@ class MainWindow(QMainWindow):
         # Phase 7: SPR profile chart
         self._spr_chart = SprChartWidget()
         tabs.addTab(self._spr_chart, "SPR Profili")
+
+        # X-ray tube spectrum chart
+        self._spectrum_chart = SpectrumChartWidget(self._material_service)
+        tabs.addTab(self._spectrum_chart, "Spektrum")
 
         return tabs
 
@@ -483,6 +494,18 @@ class MainWindow(QMainWindow):
 
     def _run_simulation(self) -> None:
         """Launch ray-tracing simulation in background thread."""
+        from app.ui.dialogs.simulation_config_dialog import SimulationConfigDialog
+
+        dlg = SimulationConfigDialog(
+            current=getattr(self, "_last_sim_config", None),
+            parent=self,
+        )
+        if not dlg.exec():
+            return
+
+        config = dlg.get_config()
+        self._last_sim_config = config
+
         geo = self._controller.geometry
         energy = self._toolbar.get_energy_keV()
 
@@ -493,8 +516,8 @@ class MainWindow(QMainWindow):
         worker.setup(
             geometry=geo,
             energy_keV=energy,
-            num_rays=DEFAULT_NUM_RAYS,
-            include_buildup=True,
+            num_rays=config.num_rays,
+            include_buildup=config.include_buildup,
         )
         worker.progress.connect(self._on_simulation_progress)
         worker.result_ready.connect(self._on_simulation_result)
@@ -826,6 +849,19 @@ class MainWindow(QMainWindow):
         """Show/hide LINAC warning based on energy mode."""
         self._linac_warning.setVisible(mode == "MeV")
 
+    def _on_tube_config_changed(self) -> None:
+        """Update spectrum chart when tube parameters change (kVp mode only)."""
+        if self._toolbar.energy_mode != "kVp":
+            return
+        from app.core.spectrum_models import TubeConfig
+        config = TubeConfig(
+            target_id=self._toolbar.get_target_id(),
+            kVp=float(self._toolbar.get_slider_raw()),
+            window_type=self._toolbar.get_window_type(),
+            window_thickness_mm=self._toolbar.get_window_thickness_mm(),
+        )
+        self._spectrum_chart.update_spectrum(config)
+
     # ------------------------------------------------------------------
     # G-10: Customizable quality thresholds
     # ------------------------------------------------------------------
@@ -848,6 +884,12 @@ class MainWindow(QMainWindow):
         """Open validation dialog and run physics engine tests."""
         from app.ui.dialogs.validation_dialog import ValidationDialog
         dlg = ValidationDialog(self)
+        dlg.exec()
+
+    def _on_about(self) -> None:
+        """Show about dialog."""
+        from app.ui.dialogs.about_dialog import AboutDialog
+        dlg = AboutDialog(self)
         dlg.exec()
 
     # ------------------------------------------------------------------

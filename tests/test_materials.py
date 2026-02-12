@@ -15,13 +15,13 @@ def svc() -> MaterialService:
 
 
 class TestMaterialLoading:
-    def test_loads_all_8_materials(self, svc: MaterialService):
+    def test_loads_all_materials(self, svc: MaterialService):
         materials = svc.get_all_materials()
-        assert len(materials) == 8
+        assert len(materials) == 9
 
     def test_material_ids(self, svc: MaterialService):
         ids = {m.id for m in svc.get_all_materials()}
-        expected = {"Pb", "W", "Bi", "Al", "Cu", "SS304", "SS316", "Bronze"}
+        expected = {"Pb", "W", "Bi", "Al", "Cu", "Be", "SS304", "SS316", "Bronze"}
         assert ids == expected
 
     def test_lead_properties(self, svc: MaterialService):

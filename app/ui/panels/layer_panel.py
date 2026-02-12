@@ -14,10 +14,10 @@ from PyQt6.QtWidgets import (
     QPushButton, QDoubleSpinBox, QLineEdit, QScrollArea,
     QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSignalBlocker
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QSignalBlocker, QMimeData
+from PyQt6.QtGui import QColor, QDrag
 
-from app.constants import MATERIAL_IDS, MAX_STAGES, MIN_STAGES
+from app.constants import MATERIAL_IDS, MAX_STAGES, MIN_STAGES, LAYER_MIME_TYPE, MATERIAL_MIME_TYPE
 from app.models.geometry import (
     StagePurpose, LayerPurpose, ApertureConfig, CollimatorType,
 )
@@ -57,6 +57,7 @@ class LayerRowWidget(QFrame):
     purpose_changed = pyqtSignal(int, object)
     delete_clicked = pyqtSignal(int)
     row_clicked = pyqtSignal(int)
+    layer_dropped = pyqtSignal(int, int)  # from_idx, to_idx
     composite_toggled = pyqtSignal(int, bool)
     inner_material_changed = pyqtSignal(int, str)
     inner_width_changed = pyqtSignal(int, float)
@@ -70,6 +71,8 @@ class LayerRowWidget(QFrame):
     ):
         super().__init__(parent)
         self._layer_index = layer_index
+        self._drag_start = None
+        self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("""
             LayerRowWidget {
@@ -219,8 +222,76 @@ class LayerRowWidget(QFrame):
         self.inner_width_changed.emit(self._layer_index, value)
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.pos()
         self.row_clicked.emit(self._layer_index)
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if self._drag_start is None:
+            return
+        if (event.pos() - self._drag_start).manhattanLength() < 10:
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(LAYER_MIME_TYPE, str(self._layer_index).encode())
+        drag.setMimeData(mime)
+        pixmap = self.grab()
+        pixmap.setDevicePixelRatio(1.0)
+        drag.setPixmap(pixmap.scaledToWidth(min(pixmap.width(), 200)))
+        drag.setHotSpot(event.pos())
+        drag.exec(Qt.DropAction.MoveAction)
+
+    def dragEnterEvent(self, event):
+        md = event.mimeData()
+        if md.hasFormat(LAYER_MIME_TYPE) or md.hasFormat(MATERIAL_MIME_TYPE):
+            event.acceptProposedAction()
+            self._set_drop_highlight(True)
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._set_drop_highlight(False)
+        super().dragLeaveEvent(event)
+
+    def dragMoveEvent(self, event):
+        event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        self._set_drop_highlight(False)
+        md = event.mimeData()
+        if md.hasFormat(LAYER_MIME_TYPE):
+            from_idx = int(md.data(LAYER_MIME_TYPE).data().decode())
+            if from_idx != self._layer_index:
+                self.layer_dropped.emit(from_idx, self._layer_index)
+            event.acceptProposedAction()
+        elif md.hasFormat(MATERIAL_MIME_TYPE):
+            mat_id = md.data(MATERIAL_MIME_TYPE).data().decode()
+            self.material_changed.emit(self._layer_index, mat_id)
+            event.acceptProposedAction()
+
+    def _set_drop_highlight(self, active: bool) -> None:
+        if active:
+            self.setStyleSheet("""
+                LayerRowWidget {
+                    background: #1E293B;
+                    border: 2px solid #3B82F6;
+                    border-radius: 3px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                LayerRowWidget {
+                    background: #1E293B;
+                    border: 1px solid #334155;
+                    border-radius: 3px;
+                }
+                LayerRowWidget:hover {
+                    border: 1px solid #3B82F6;
+                }
+            """)
 
     def set_highlighted(self, highlighted: bool) -> None:
         border = "#3B82F6" if highlighted else "#334155"
@@ -566,6 +637,7 @@ class LayerPanel(QWidget):
             row.thickness_changed.connect(self._on_layer_thick_changed)
             row.delete_clicked.connect(self._on_layer_delete)
             row.row_clicked.connect(self._on_layer_row_clicked)
+            row.layer_dropped.connect(self._on_layer_dropped)
             row.composite_toggled.connect(self._on_layer_composite_toggled)
             row.inner_material_changed.connect(self._on_layer_inner_mat_changed)
             row.inner_width_changed.connect(self._on_layer_inner_width_changed)
@@ -665,6 +737,11 @@ class LayerPanel(QWidget):
     def _on_layer_delete(self, layer_idx: int) -> None:
         self._controller.remove_layer(
             self._controller.active_stage_index, layer_idx,
+        )
+
+    def _on_layer_dropped(self, from_idx: int, to_idx: int) -> None:
+        self._controller.move_layer(
+            self._controller.active_stage_index, from_idx, to_idx,
         )
 
     def _on_layer_row_clicked(self, layer_idx: int) -> None:

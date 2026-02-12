@@ -9,6 +9,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
 from app.ui.styles.colors import BACKGROUND, PANEL_BG, TEXT_SECONDARY, BORDER
 
@@ -29,6 +30,8 @@ class BaseChart(QWidget):
         self._curves: list[pg.PlotDataItem] = []
         self._regions: list[pg.LinearRegionItem] = []
         self._crosshair_enabled = False
+        self._log_x = log_x
+        self._log_y = log_y
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -129,7 +132,7 @@ class BaseChart(QWidget):
         return line
 
     def enable_crosshair(self) -> None:
-        """Add crosshair lines that follow mouse cursor."""
+        """Add crosshair lines and coordinate tooltip that follow mouse."""
         if self._crosshair_enabled:
             return
         self._crosshair_enabled = True
@@ -142,16 +145,33 @@ class BaseChart(QWidget):
         self.plot_widget.addItem(self._vline, ignoreBounds=True)
         self.plot_widget.addItem(self._hline, ignoreBounds=True)
 
+        # Tooltip label showing (x, y) at crosshair
+        self._crosshair_label = pg.TextItem(
+            text="", color="#F8FAFC", anchor=(0, 1),
+            fill=pg.mkBrush("#1E293BCC"),
+        )
+        self._crosshair_label.setFont(QFont("Segoe UI", 8))
+        self.plot_widget.addItem(self._crosshair_label, ignoreBounds=True)
+
         self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
 
     def _on_mouse_moved(self, pos) -> None:
-        """Update crosshair position."""
+        """Update crosshair position and tooltip text."""
         vb = self.plot_widget.getPlotItem().vb
         if self.plot_widget.sceneBoundingRect().contains(pos):
             mouse_point = vb.mapSceneToView(pos)
-            self._vline.setPos(mouse_point.x())
-            self._hline.setPos(mouse_point.y())
+            x, y = mouse_point.x(), mouse_point.y()
+            self._vline.setPos(x)
+            self._hline.setPos(y)
+
+            # Convert from log-space if log mode is active
+            x_val = 10 ** x if self._log_x else x
+            y_val = 10 ** y if self._log_y else y
+            self._crosshair_label.setText(f" {x_val:.4g}, {y_val:.4g} ")
+            self._crosshair_label.setPos(x, y)
 
     def set_log_mode(self, x: bool, y: bool) -> None:
         """Toggle logarithmic axes."""
+        self._log_x = x
+        self._log_y = y
         self.plot_widget.setLogMode(x=x, y=y)

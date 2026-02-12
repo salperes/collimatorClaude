@@ -26,7 +26,15 @@ MAX_ENERGY_KEV = 20_000.0  # 20 MeV
 DB_FILENAME = "collimator.db"
 
 # Material IDs (canonical)
-MATERIAL_IDS = ["Pb", "W", "SS304", "SS316", "Bi", "Al", "Cu", "Bronze"]
+MATERIAL_IDS = ["Pb", "W", "SS304", "SS316", "Bi", "Al", "Cu", "Be", "Bronze"]
+
+# X-ray tube targets
+XRAY_TARGETS = ["W", "Mo", "Rh", "Cu", "Ag"]
+DEFAULT_TARGET = "W"
+
+# Window types
+WINDOW_GLASS_AL_EQ_MM = 1.0     # Glass tube inherent filtration (Al-equivalent)
+WINDOW_BE_THICKNESS_MM = 0.5    # Beryllium window thickness
 
 # Multi-stage geometry
 GEOMETRY_SCHEMA_VERSION = "2.0"
@@ -37,6 +45,10 @@ DEFAULT_GAP_MM = 0.0
 # Canvas grid
 GRID_SPACING_OPTIONS = [1.0, 5.0, 10.0, 50.0]  # mm
 DEFAULT_GRID_SPACING = 10.0  # mm
+
+# Drag-drop MIME types
+LAYER_MIME_TYPE = "application/x-collimator-layer-index"
+MATERIAL_MIME_TYPE = "application/x-collimator-material"
 
 # Canvas visual
 HANDLE_SIZE = 6  # pixels (cosmetic, zoom-invariant)
