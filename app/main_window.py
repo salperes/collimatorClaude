@@ -478,6 +478,11 @@ class MainWindow(QMainWindow):
         self._beam_measure_point = None  # (x, y) of first CTRL+click
         self._beam_measure_artists = []  # matplotlib artists for cleanup
 
+        # Cursor dot on curve
+        self._beam_cursor_dot = None  # matplotlib Line2D artist
+        self._beam_plot_pos = None  # NDArray — current X positions
+        self._beam_plot_ydata = None  # NDArray — current Y data (unit-transformed)
+
         return widget
 
     def _ensure_beam_canvas(self) -> None:
@@ -723,12 +728,12 @@ class MainWindow(QMainWindow):
                 y_max = None
                 fwhm_ref = float(np.max(y_data)) / 2.0 if len(y_data) > 0 else 0.5
             case DoseDisplayUnit.DB:
-                import math as _math
-                y_data = np.where(
-                    raw > 1e-30,
-                    10.0 * np.log10(raw),
-                    -300.0,
-                )
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    y_data = np.where(
+                        raw > 1e-30,
+                        10.0 * np.log10(np.maximum(raw, 1e-30)),
+                        -300.0,
+                    )
                 y_label = t("charts.attenuation_db", "Attenuation (dB)")
                 y_max = 5.0
                 fwhm_ref = -3.0  # -3 dB = half power
@@ -811,6 +816,16 @@ class MainWindow(QMainWindow):
             ax.set_ylim(max(y_min_db * 1.1, -80.0), y_max)
         elif y_max is not None:
             ax.set_ylim(-y_max * 0.05, y_max)
+
+        # Store data for cursor dot interpolation
+        self._beam_plot_pos = pos
+        self._beam_plot_ydata = y_data
+        # Create invisible cursor dot (will be shown on hover)
+        (self._beam_cursor_dot,) = ax.plot(
+            [], [], "o", color="#FBBF24", markersize=7,
+            markeredgecolor="#FFFFFF", markeredgewidth=1.2, zorder=10,
+        )
+
         self._beam_figure.tight_layout()
         self._beam_canvas.draw()
 
@@ -843,20 +858,39 @@ class MainWindow(QMainWindow):
                 return "%"
 
     def _on_beam_mouse_move(self, event) -> None:
-        """Show cursor X/Y coordinates on beam profile chart."""
+        """Show cursor X/Y coordinates + dot on beam profile curve."""
         if event.inaxes != self._beam_ax:
             self._beam_coord_label.setText("")
+            # Hide cursor dot when outside axes
+            if self._beam_cursor_dot is not None:
+                self._beam_cursor_dot.set_data([], [])
+                self._beam_canvas.draw_idle()
             return
 
-        x, y = event.xdata, event.ydata
+        x = event.xdata
         unit_str = self._beam_y_unit_label()
-        text = f"X: {x:.2f} mm   Y: {y:.4g} {unit_str}"
+
+        # Interpolate Y on the curve at mouse X
+        if (
+            self._beam_plot_pos is not None
+            and self._beam_plot_ydata is not None
+            and len(self._beam_plot_pos) > 1
+        ):
+            y_on_curve = float(np.interp(x, self._beam_plot_pos, self._beam_plot_ydata))
+            # Update cursor dot position
+            if self._beam_cursor_dot is not None:
+                self._beam_cursor_dot.set_data([x], [y_on_curve])
+                self._beam_canvas.draw_idle()
+        else:
+            y_on_curve = event.ydata
+
+        text = f"X: {x:.2f} mm   Y: {y_on_curve:.4g} {unit_str}"
 
         # If measurement point exists, also show delta
         if self._beam_measure_point is not None:
             x0, y0 = self._beam_measure_point
             dx = x - x0
-            dy = y - y0
+            dy = y_on_curve - y0
             text += f"   |   \u0394X: {dx:.2f} mm   \u0394Y: {dy:.4g} {unit_str}"
 
         self._beam_coord_label.setText(text)
@@ -874,7 +908,16 @@ class MainWindow(QMainWindow):
         if not is_ctrl:
             return
 
-        x, y = event.xdata, event.ydata
+        x = event.xdata
+        # Snap Y to curve value
+        if (
+            self._beam_plot_pos is not None
+            and self._beam_plot_ydata is not None
+            and len(self._beam_plot_pos) > 1
+        ):
+            y = float(np.interp(x, self._beam_plot_pos, self._beam_plot_ydata))
+        else:
+            y = event.ydata
 
         # Remove old measurement artists
         for artist in self._beam_measure_artists:
@@ -1047,9 +1090,10 @@ class MainWindow(QMainWindow):
         ax = self._beam_ax
         if is_db:
             # Convert to dB for scatter overlay
-            primary_db = np.where(ints > 1e-30, 10.0 * np.log10(ints), -300.0)
-            combined_t = ints + spr_interp * ints  # raw transmission
-            combined_db = np.where(combined_t > 1e-30, 10.0 * np.log10(combined_t), -300.0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                primary_db = np.where(ints > 1e-30, 10.0 * np.log10(np.maximum(ints, 1e-30)), -300.0)
+                combined_t = ints + spr_interp * ints  # raw transmission
+                combined_db = np.where(combined_t > 1e-30, 10.0 * np.log10(np.maximum(combined_t, 1e-30)), -300.0)
             ax.fill_between(
                 pos, primary_db, combined_db,
                 alpha=0.25, color="#EF4444",
