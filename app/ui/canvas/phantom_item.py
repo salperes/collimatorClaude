@@ -44,6 +44,9 @@ class PhantomItem(QGraphicsItem):
         self._type = phantom_type
         self._label = ""
         self._enabled = True
+        self._locked: bool = False
+        self._x_locked: bool = True
+        self._dragging: bool = False
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -58,6 +61,25 @@ class PhantomItem(QGraphicsItem):
     def set_label(self, label: str) -> None:
         self._label = label
         self.update()
+
+    @property
+    def locked(self) -> bool:
+        return self._locked
+
+    def set_locked(self, locked: bool) -> None:
+        self._locked = locked
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not locked)
+
+    @property
+    def x_locked(self) -> bool:
+        return self._x_locked
+
+    def set_x_locked(self, locked: bool) -> None:
+        self._x_locked = locked
+        self.setCursor(
+            Qt.CursorShape.ForbiddenCursor if locked
+            else Qt.CursorShape.SizeVerCursor
+        )
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
@@ -131,9 +153,16 @@ class PhantomItem(QGraphicsItem):
             x = i * s / 2
             painter.drawLine(QPointF(x, -s), QPointF(x, s))
 
+    def mousePressEvent(self, event) -> None:
+        self._dragging = True
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._dragging = False
+        super().mouseReleaseEvent(event)
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            # Constrain to X=0 (vertical movement only)
-            new_pos = value
-            return QPointF(self.pos().x(), new_pos.y())
+            if self._x_locked and self._dragging:
+                return QPointF(self.pos().x(), value.y())
         return super().itemChange(change, value)

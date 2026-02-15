@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from app.core.i18n import t
 from app.core.spectrum_models import effective_energy_kVp
 
 
@@ -18,6 +19,7 @@ from app.core.spectrum_models import effective_energy_kVp
 _COMPARE_PRESETS: list[tuple[str, float]] = [
     ("80 kVp (27 keV)", effective_energy_kVp(80)),
     ("160 kVp (53 keV)", effective_energy_kVp(160)),
+    ("225 kVp (75 keV)", effective_energy_kVp(225)),
     ("320 kVp (107 keV)", effective_energy_kVp(320)),
     ("1 MeV (1000 keV)", 1000.0),
     ("3.5 MeV (3500 keV)", 3500.0),
@@ -30,7 +32,7 @@ class CompareDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Enerji Karsilastirmasi")
+        self.setWindowTitle(t("dialogs.compare_title", "Energy Comparison"))
         self.setMinimumWidth(350)
         self._checkboxes: list[tuple[QCheckBox, float]] = []
         self._build_ui()
@@ -39,7 +41,7 @@ class CompareDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Presets group
-        group = QGroupBox("Enerji Preset'leri")
+        group = QGroupBox(t("dialogs.compare_presets", "Energy Presets"))
         group_layout = QVBoxLayout(group)
 
         for label, keV in _COMPARE_PRESETS:
@@ -55,19 +57,19 @@ class CompareDialog(QDialog):
 
         # Custom energy input
         custom_layout = QHBoxLayout()
-        custom_layout.addWidget(QLabel("Ozel enerji [keV]:"))
+        custom_layout.addWidget(QLabel(t("dialogs.compare_custom", "Custom energy [keV]:")))
         self._custom_spin = QSpinBox()
         self._custom_spin.setRange(10, 10000)
         self._custom_spin.setValue(500)
         self._custom_spin.setSingleStep(50)
         custom_layout.addWidget(self._custom_spin)
-        self._cb_custom = QCheckBox("Ekle")
+        self._cb_custom = QCheckBox(t("dialogs.compare_add", "Add"))
         custom_layout.addWidget(self._cb_custom)
         layout.addLayout(custom_layout)
 
         # Ray count
         ray_layout = QHBoxLayout()
-        ray_layout.addWidget(QLabel("Isin sayisi:"))
+        ray_layout.addWidget(QLabel(t("dialogs.compare_rays", "Ray count:")))
         self._spin_rays = QSpinBox()
         self._spin_rays.setRange(36, 3600)
         self._spin_rays.setValue(360)
@@ -77,9 +79,9 @@ class CompareDialog(QDialog):
 
         # Buttons
         btn_layout = QHBoxLayout()
-        btn_ok = QPushButton("Karsilastir")
+        btn_ok = QPushButton(t("dialogs.compare_run", "Compare"))
         btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton("Iptal")
+        btn_cancel = QPushButton(t("common.cancel", "Cancel"))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addStretch()
         btn_layout.addWidget(btn_ok)

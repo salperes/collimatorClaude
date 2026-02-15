@@ -19,10 +19,8 @@ from app.export.json_export import JsonExporter
 from app.export.cdt_export import CdtExporter
 from app.models.geometry import (
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
-    LayerPurpose,
     StagePurpose,
 )
 from app.models.simulation import (
@@ -44,13 +42,8 @@ def _make_geometry(name: str = "Export Test") -> CollimatorGeometry:
                 id="s0",
                 name="Primary",
                 purpose=StagePurpose.PRIMARY_SHIELDING,
-                layers=[
-                    CollimatorLayer(
-                        material_id="Pb",
-                        thickness=20.0,
-                        purpose=LayerPurpose.PRIMARY_SHIELDING,
-                    ),
-                ],
+                material_id="Pb",
+                y_position=25.0,
             ),
         ],
     )
@@ -123,7 +116,7 @@ class TestJsonExport:
 
         assert loaded.type == CollimatorType.FAN_BEAM
         assert len(loaded.stages) == 1
-        assert loaded.stages[0].layers[0].material_id == "Pb"
+        assert loaded.stages[0].material_id == "Pb"
 
     def test_unicode_support(self, tmp_path):
         exporter = JsonExporter()

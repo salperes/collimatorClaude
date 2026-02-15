@@ -1,7 +1,7 @@
 """Physics engine — Beer-Lambert attenuation, HVL/TVL, sweep functions.
 
 All internal calculations in core units (cm, keV).
-Layer thickness inputs are in mm (UI units) and converted via units.py.
+Wall thickness inputs are in mm (UI units) and converted via units.py.
 
 Reference: FRD §4.2, §7.1–7.4, docs/phase-02-physics-engine.md.
 """
@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from app.core.units import mm_to_cm, thickness_to_mfp, transmission_to_dB
-from app.models.geometry import CollimatorLayer
+from app.core.units import mm_to_cm, cm_to_mm, thickness_to_mfp, transmission_to_dB
+from app.models.geometry import CollimatorStage, CollimatorType
 from app.models.results import (
     AttenuationResult,
     HvlTvlResult,
@@ -25,6 +25,31 @@ from app.models.results import (
 if TYPE_CHECKING:
     from app.core.build_up_factors import BuildUpFactors
     from app.core.material_database import MaterialService
+
+
+def effective_wall_thickness_mm(
+    stage: CollimatorStage,
+    ctype: CollimatorType,
+) -> float:
+    """Compute effective shielding wall thickness from solid stage geometry.
+
+    For a solid stage, effective wall = (outer_width/2) - aperture_half_width
+    at the midpoint of the stage height.
+
+    Args:
+        stage: CollimatorStage [mm, degree].
+        ctype: Collimator type.
+    Returns:
+        Effective wall thickness per side [mm].
+    """
+    from app.core.ray_tracer import aperture_half_width_at_y
+    stage_h_cm = mm_to_cm(stage.outer_height)
+    mid_y_cm = stage_h_cm / 2.0
+    ap_half_cm = aperture_half_width_at_y(
+        stage.aperture, ctype, mid_y_cm, stage_h_cm,
+    )
+    ap_half_mm = cm_to_mm(ap_half_cm)
+    return max(0.0, (stage.outer_width / 2.0) - ap_half_mm)
 
 
 class PhysicsEngine:
@@ -86,27 +111,81 @@ class PhysicsEngine:
         density = self._materials.get_material(material_id).density
         return mu_rho_c * density
 
-    def calculate_attenuation(
+    def calculate_slab_attenuation(
         self,
-        layers: list[CollimatorLayer],
+        material_id: str,
+        thickness_mm: float,
         energy_keV: float,
         include_buildup: bool = False,
     ) -> AttenuationResult:
-        """Multi-layer Beer-Lambert attenuation.
+        """Single-slab Beer-Lambert attenuation.
 
-        I/I₀ = B(E, μx) × exp(-Σ μᵢxᵢ)
-
-        Layer thicknesses are in mm (UI units) and converted internally.
+        Pure material + thickness calculation. Does not depend on
+        stage geometry — for analytical / validation use.
 
         Args:
-            layers: Collimator layers with thickness in mm.
+            material_id: Material identifier (e.g. "Pb").
+            thickness_mm: Slab thickness [mm].
             energy_keV: Photon energy [keV].
             include_buildup: Apply build-up factor correction.
 
         Returns:
             AttenuationResult with transmission, dB, per-layer breakdown.
         """
-        if not layers:
+        if not material_id or thickness_mm <= 0:
+            return AttenuationResult(
+                transmission=1.0, attenuation_dB=0.0, total_mfp=0.0,
+            )
+        thickness_cm = float(mm_to_cm(thickness_mm))
+        mu = self.linear_attenuation(material_id, energy_keV)
+        mfp = float(thickness_to_mfp(thickness_cm, mu))
+
+        transmission = math.exp(-mfp)
+        buildup_factor = 1.0
+        if include_buildup and self._buildup:
+            buildup_factor = self._buildup.get_multilayer_buildup(
+                [(material_id, mfp)], energy_keV,
+            )
+            transmission *= buildup_factor
+
+        transmission = min(max(transmission, 0.0), 1.0)
+        return AttenuationResult(
+            transmission=transmission,
+            attenuation_dB=float(transmission_to_dB(transmission)),
+            total_mfp=mfp,
+            layers=[LayerAttenuation(
+                material_id=material_id,
+                thickness_cm=thickness_cm,
+                mu_per_cm=mu,
+                mfp=mfp,
+            )],
+            buildup_factor=buildup_factor,
+        )
+
+    def calculate_attenuation(
+        self,
+        stages: list[CollimatorStage],
+        energy_keV: float,
+        include_buildup: bool = False,
+        ctype: CollimatorType = CollimatorType.SLIT,
+    ) -> AttenuationResult:
+        """Multi-stage Beer-Lambert attenuation.
+
+        I/I₀ = B(E, μx) × exp(-Σ μᵢxᵢ)
+
+        Effective wall thickness is computed from stage geometry:
+        wall = (outer_width/2) - aperture_half_width_at_midpoint.
+
+        Args:
+            stages: Collimator stages [mm, degree].
+            energy_keV: Photon energy [keV].
+            include_buildup: Apply build-up factor correction.
+            ctype: Collimator type (for aperture shape computation).
+
+        Returns:
+            AttenuationResult with transmission, dB, per-stage breakdown.
+        """
+        if not stages:
             return AttenuationResult(
                 transmission=1.0,
                 attenuation_dB=0.0,
@@ -117,21 +196,24 @@ class PhysicsEngine:
         total_mfp = 0.0
         layers_mfp_pairs: list[tuple[str, float]] = []
 
-        for layer in layers:
-            if not layer.material_id or layer.thickness <= 0:
+        for stage in stages:
+            if not stage.material_id:
                 continue
-            thickness_cm = float(mm_to_cm(layer.thickness))
-            mu = self.linear_attenuation(layer.material_id, energy_keV)
+            wall_mm = effective_wall_thickness_mm(stage, ctype)
+            if wall_mm <= 0:
+                continue
+            thickness_cm = float(mm_to_cm(wall_mm))
+            mu = self.linear_attenuation(stage.material_id, energy_keV)
             mfp = float(thickness_to_mfp(thickness_cm, mu))
             total_mfp += mfp
 
             layer_results.append(LayerAttenuation(
-                material_id=layer.material_id,
+                material_id=stage.material_id,
                 thickness_cm=thickness_cm,
                 mu_per_cm=mu,
                 mfp=mfp,
             ))
-            layers_mfp_pairs.append((layer.material_id, mfp))
+            layers_mfp_pairs.append((stage.material_id, mfp))
 
         transmission = math.exp(-total_mfp)
 
@@ -155,27 +237,29 @@ class PhysicsEngine:
 
     def energy_sweep(
         self,
-        layers: list[CollimatorLayer],
+        stages: list[CollimatorStage],
         min_keV: float,
         max_keV: float,
         steps: int,
         include_buildup: bool = False,
+        ctype: CollimatorType = CollimatorType.SLIT,
     ) -> list[AttenuationResult]:
         """Attenuation over a range of energies (log-spaced).
 
         Args:
-            layers: Collimator layers.
+            stages: Collimator stages.
             min_keV: Lower energy bound [keV].
             max_keV: Upper energy bound [keV].
             steps: Number of energy points.
             include_buildup: Apply build-up factor correction.
+            ctype: Collimator type (for aperture shape computation).
 
         Returns:
             List of AttenuationResult, one per energy step.
         """
         energies = np.geomspace(min_keV, max_keV, steps)
         return [
-            self.calculate_attenuation(layers, float(E), include_buildup)
+            self.calculate_attenuation(stages, float(E), include_buildup, ctype)
             for E in energies
         ]
 

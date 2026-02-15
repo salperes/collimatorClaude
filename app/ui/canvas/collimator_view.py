@@ -48,7 +48,7 @@ class CollimatorView(QGraphicsView):
         self.setBackgroundBrush(QColor(BACKGROUND))
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
         # Large scene rect so user can pan freely
         self.setSceneRect(-5000, -5000, 10000, 10000)
 
@@ -114,9 +114,12 @@ class CollimatorView(QGraphicsView):
     # ------------------------------------------------------------------
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        # Right-click drag or middle-click or Ctrl+left-click → pan
-        if (event.button() == Qt.MouseButton.RightButton
-                or event.button() == Qt.MouseButton.MiddleButton
+        # Right-click → let through for context menu (don't start pan)
+        if event.button() == Qt.MouseButton.RightButton:
+            super().mousePressEvent(event)
+            return
+        # Middle-click or Ctrl+left-click → pan
+        if (event.button() == Qt.MouseButton.MiddleButton
                 or (event.button() == Qt.MouseButton.LeftButton
                     and event.modifiers() & Qt.KeyboardModifier.ControlModifier)):
             self._panning = True
@@ -153,10 +156,6 @@ class CollimatorView(QGraphicsView):
         if self._panning:
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
-            event.accept()
-            return
-        # Suppress right-click context menu
-        if event.button() == Qt.MouseButton.RightButton:
             event.accept()
             return
         super().mouseReleaseEvent(event)

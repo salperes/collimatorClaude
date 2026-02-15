@@ -11,7 +11,7 @@ Reference: Phase-03 spec — FR-1.2, Canvas Hierarchy.
 import math
 
 from PyQt6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem
-from PyQt6.QtCore import QRectF, QPointF
+from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath, QPolygonF
 
 from app.models.geometry import ApertureConfig, CollimatorType
@@ -35,13 +35,15 @@ class ApertureItem(QGraphicsItem):
         self._path = QPainterPath()
         self._bounding = QRectF()
 
+        # Let mouse events pass through to parent StageItem
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
     def update_shape(
         self,
         aperture: ApertureConfig,
         collimator_type: CollimatorType,
         stage_width: float,
         stage_height: float,
-        inner_offset: float,
     ) -> None:
         """Recompute aperture path from config.
 
@@ -50,8 +52,6 @@ class ApertureItem(QGraphicsItem):
             collimator_type: Beam type (determines shape).
             stage_width: Stage outer width [mm].
             stage_height: Stage outer height [mm].
-            inner_offset: Total layer thickness per side [mm].
-                          Aperture sits inside all layers.
         """
         self.prepareGeometryChange()
         self._path = QPainterPath()
@@ -61,17 +61,17 @@ class ApertureItem(QGraphicsItem):
 
         match collimator_type:
             case CollimatorType.FAN_BEAM:
-                self._build_fan_path(aperture, stage_height, cx, inner_offset)
+                self._build_fan_path(aperture, stage_height, cx)
             case CollimatorType.PENCIL_BEAM:
-                self._build_pencil_path(aperture, cx, cy, inner_offset)
+                self._build_pencil_path(aperture, cx, cy)
             case CollimatorType.SLIT:
-                self._build_slit_path(aperture, stage_height, cx, inner_offset)
+                self._build_slit_path(aperture, stage_height, cx)
 
         self._bounding = self._path.boundingRect().adjusted(-1, -1, 1, 1)
 
     def _build_fan_path(
         self, aperture: ApertureConfig, stage_height: float,
-        cx: float, inner_offset: float,
+        cx: float,
     ) -> None:
         """Trapezoid: narrow at top (source side), wider at bottom."""
         fan_angle = aperture.fan_angle or 30.0
@@ -81,10 +81,9 @@ class ApertureItem(QGraphicsItem):
         top_half = slit_w / 2.0
         bottom_half = top_half + stage_height * math.tan(half_angle_rad)
 
-        # Clamp to stay within layers
-        max_half = cx - inner_offset
-        top_half = min(top_half, max_half)
-        bottom_half = min(bottom_half, max_half)
+        # Clamp to stage edge
+        top_half = min(top_half, cx)
+        bottom_half = min(bottom_half, cx)
 
         polygon = QPolygonF([
             QPointF(cx - top_half, 0),
@@ -97,21 +96,21 @@ class ApertureItem(QGraphicsItem):
 
     def _build_pencil_path(
         self, aperture: ApertureConfig,
-        cx: float, cy: float, inner_offset: float,
+        cx: float, cy: float,
     ) -> None:
         """Circle/ellipse centered in the stage."""
         diameter = aperture.pencil_diameter or 5.0
-        radius = min(diameter / 2.0, cx - inner_offset)
+        radius = min(diameter / 2.0, cx)
         self._path.addEllipse(QPointF(cx, cy), radius, radius)
 
     def _build_slit_path(
         self, aperture: ApertureConfig, stage_height: float,
-        cx: float, inner_offset: float,
+        cx: float,
     ) -> None:
         """Narrow rectangle or trapezoid centered in the stage."""
         slit_w = aperture.slit_width or 2.0
         slit_h = aperture.slit_height or stage_height
-        max_half = cx - inner_offset
+        max_half = cx
 
         half_h = min(slit_h / 2.0, stage_height / 2.0)
         y_top = stage_height / 2.0 - half_h
@@ -153,3 +152,4 @@ class ApertureItem(QGraphicsItem):
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.drawPath(self._path)
+

@@ -13,6 +13,7 @@ from dataclasses import replace
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox
 
+from app.core.i18n import t
 from app.core.material_database import MaterialService
 from app.core.spectrum_models import TubeConfig, XRaySpectrum
 from app.ui.charts.base_chart import BaseChart
@@ -44,7 +45,7 @@ class SpectrumChartWidget(QWidget):
 
         # Top row: options
         top_layout = QHBoxLayout()
-        self._cb_unfiltered = QCheckBox("Filtrasyonsuz spektrumu goster")
+        self._cb_unfiltered = QCheckBox(t("charts.show_unfiltered", "Show unfiltered spectrum"))
         self._cb_unfiltered.setChecked(True)
         self._cb_unfiltered.toggled.connect(lambda _: self._redraw())
         top_layout.addWidget(self._cb_unfiltered)
@@ -53,9 +54,9 @@ class SpectrumChartWidget(QWidget):
 
         # Chart
         self._chart = BaseChart(
-            title="X-ray Tup Spektrumu",
-            x_label="Enerji [keV]",
-            y_label="Goreceli Siddet",
+            title=t("charts.spectrum_title", "X-ray Tube Spectrum"),
+            x_label=t("charts.energy_axis", "Energy [keV]"),
+            y_label=t("charts.relative_intensity", "Relative Intensity"),
         )
         self._chart.enable_crosshair()
         layout.addWidget(self._chart, stretch=1)
@@ -83,7 +84,7 @@ class SpectrumChartWidget(QWidget):
         # Filtered spectrum
         energies, phi = self._spectrum.generate(config)
         self._chart.add_curve(
-            energies, phi, name="Filtrelenmis", color="#60A5FA", width=2,
+            energies, phi, name=t("charts.filtered", "Filtered"), color="#60A5FA", width=2,
         )
 
         # Unfiltered comparison (optional)
@@ -91,12 +92,12 @@ class SpectrumChartWidget(QWidget):
             e_unfilt, phi_unfilt = self._spectrum.generate_unfiltered(config)
             self._chart.add_curve(
                 e_unfilt, phi_unfilt,
-                name="Filtrasyonsuz", color="#64748B", width=1,
+                name=t("charts.unfiltered", "Unfiltered"), color="#64748B", width=1,
             )
 
         # Effective energy vertical marker
         e_eff = self._spectrum.effective_energy(config)
         self._eff_line = self._chart.add_infinite_line(
             pos=e_eff, angle=90, color="#F59E0B",
-            label=f"E_eff = {e_eff:.1f} keV",
+            label=t("charts.eff_energy", "E_eff = {energy} keV").format(energy=f"{e_eff:.1f}"),
         )

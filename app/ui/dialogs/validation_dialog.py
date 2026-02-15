@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.core.i18n import t
 from app.core.validation_runner import ValidationSummary
 from app.workers.validation_worker import ValidationWorker
 
@@ -36,7 +37,7 @@ class ValidationDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Fizik Motoru Dogrulama")
+        self.setWindowTitle(t("dialogs.validation_title", "Physics Engine Validation"))
         self.setMinimumSize(800, 600)
         self.resize(900, 650)
 
@@ -53,14 +54,20 @@ class ValidationDialog(QDialog):
         self._progress_bar.setRange(0, 100)
         layout.addWidget(self._progress_bar)
 
-        self._lbl_status = QLabel("Dogrulama testleri baslatiliyor...")
+        self._lbl_status = QLabel(t("dialogs.validation_starting", "Starting validation tests..."))
         layout.addWidget(self._lbl_status)
 
         # Results table (hidden until complete)
         self._table = QTableWidget()
         self._table.setColumnCount(7)
         self._table.setHorizontalHeaderLabels([
-            "Test ID", "Grup", "Bizim", "Referans", "Fark%", "Tolerans%", "Durum",
+            t("dialogs.validation_col_test_id", "Test ID"),
+            t("dialogs.validation_col_group", "Group"),
+            t("dialogs.validation_col_ours", "Ours"),
+            t("dialogs.validation_col_reference", "Reference"),
+            t("dialogs.validation_col_diff", "Diff%"),
+            t("dialogs.validation_col_tolerance", "Tolerance%"),
+            t("dialogs.validation_col_status", "Status"),
         ])
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.setAlternatingRowColors(True)
@@ -77,14 +84,14 @@ class ValidationDialog(QDialog):
         # Buttons
         btn_layout = QHBoxLayout()
 
-        self._btn_pdf = QPushButton("PDF Rapor Kaydet")
+        self._btn_pdf = QPushButton(t("dialogs.validation_save_pdf", "Save PDF Report"))
         self._btn_pdf.setEnabled(False)
         self._btn_pdf.clicked.connect(self._on_save_pdf)
         btn_layout.addWidget(self._btn_pdf)
 
         btn_layout.addStretch()
 
-        self._btn_close = QPushButton("Kapat")
+        self._btn_close = QPushButton(t("common.close", "Close"))
         self._btn_close.clicked.connect(self.accept)
         btn_layout.addWidget(self._btn_close)
 
@@ -110,7 +117,9 @@ class ValidationDialog(QDialog):
 
     def _on_progress(self, pct: int, test_id: str) -> None:
         self._progress_bar.setValue(pct)
-        self._lbl_status.setText(f"Calisan test: {test_id}")
+        self._lbl_status.setText(
+            t("dialogs.validation_running", "Running test: {test_id}").format(test_id=test_id)
+        )
 
     def _on_result(self, summary: ValidationSummary) -> None:
         self._summary = summary
@@ -120,20 +129,32 @@ class ValidationDialog(QDialog):
         # Update status
         if summary.failed == 0:
             self._lbl_status.setText(
-                f"Dogrulama tamamlandi — TUM TESTLER BASARILI ({summary.duration_s:.1f}s)"
+                t("dialogs.validation_all_pass",
+                  "Validation complete \u2014 ALL TESTS PASSED ({duration:.1f}s)").format(
+                    duration=summary.duration_s)
             )
             self._lbl_status.setStyleSheet("color: #166534; font-weight: bold;")
         else:
             self._lbl_status.setText(
-                f"Dogrulama tamamlandi — {summary.failed} TEST BASARISIZ ({summary.duration_s:.1f}s)"
+                t("dialogs.validation_some_fail",
+                  "Validation complete \u2014 {failed} TEST(S) FAILED ({duration:.1f}s)").format(
+                    failed=summary.failed, duration=summary.duration_s)
             )
             self._lbl_status.setStyleSheet("color: #991B1B; font-weight: bold;")
 
         # Summary
+        xraylib_str = 'v' + summary.xraylib_version if summary.xraylib_available else t("common.none", "none")
         self._lbl_summary.setText(
-            f"Toplam: {summary.total}  |  Basarili: {summary.passed}  |  "
-            f"Basarisiz: {summary.failed}  |  Atlanan: {summary.skipped}  |  "
-            f"xraylib: {'v' + summary.xraylib_version if summary.xraylib_available else 'yok'}"
+            t("dialogs.validation_summary",
+              "Total: {total}  |  Passed: {passed}  |  "
+              "Failed: {failed}  |  Skipped: {skipped}  |  "
+              "xraylib: {xraylib}").format(
+                total=summary.total,
+                passed=summary.passed,
+                failed=summary.failed,
+                skipped=summary.skipped,
+                xraylib=xraylib_str,
+            )
         )
 
         # Populate table
@@ -175,7 +196,9 @@ class ValidationDialog(QDialog):
 
     def _on_error(self, error: str) -> None:
         self._progress_bar.setVisible(False)
-        self._lbl_status.setText(f"Hata: {error}")
+        self._lbl_status.setText(
+            t("common.error", "Error") + f": {error}"
+        )
         self._lbl_status.setStyleSheet("color: #991B1B;")
 
     # ------------------------------------------------------------------
@@ -190,7 +213,9 @@ class ValidationDialog(QDialog):
         default_name = f"CDT_Validation_{dt.now().strftime('%Y%m%d_%H%M')}.pdf"
 
         path, _ = QFileDialog.getSaveFileName(
-            self, "PDF Rapor Kaydet", default_name,
+            self,
+            t("dialogs.validation_save_pdf", "Save PDF Report"),
+            default_name,
             "PDF Files (*.pdf)",
         )
         if not path:
@@ -201,13 +226,17 @@ class ValidationDialog(QDialog):
             exporter = ValidationReportExporter()
             exporter.generate_report(self._summary, path)
             QMessageBox.information(
-                self, "Basarili",
-                f"Dogrulama raporu kaydedildi:\n{path}",
+                self,
+                t("common.success", "Success"),
+                t("dialogs.validation_report_saved",
+                  "Validation report saved:\n{path}").format(path=path),
             )
         except Exception as e:
             QMessageBox.critical(
-                self, "Hata",
-                f"PDF olusturulamadi:\n{e}",
+                self,
+                t("common.error", "Error"),
+                t("dialogs.validation_report_error",
+                  "Could not create PDF:\n{error}").format(error=e),
             )
 
     # ------------------------------------------------------------------

@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import (
     QRadioButton, QVBoxLayout,
 )
 
+from app.core.i18n import t
+
 
 class ExportDialog(QDialog):
     """Universal export dialog with format selection and options."""
@@ -21,56 +23,56 @@ class ExportDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Disa Aktar")
+        self.setWindowTitle(t("dialogs.export_title", "Export"))
         self.setMinimumWidth(450)
 
         layout = QVBoxLayout(self)
 
         # Format selection
-        fmt_group = QGroupBox("Format")
+        fmt_group = QGroupBox(t("dialogs.export_format", "Format"))
         fmt_layout = QVBoxLayout(fmt_group)
 
-        self._radio_pdf = QRadioButton("PDF Rapor")
+        self._radio_pdf = QRadioButton(t("dialogs.export_pdf", "PDF Report"))
         self._radio_pdf.setChecked(True)
         self._radio_pdf.toggled.connect(self._on_format_changed)
         fmt_layout.addWidget(self._radio_pdf)
 
-        self._radio_csv = QRadioButton("CSV (Isin Profili)")
+        self._radio_csv = QRadioButton(t("dialogs.export_csv", "CSV (Beam Profile)"))
         self._radio_csv.setEnabled(has_simulation)
         fmt_layout.addWidget(self._radio_csv)
 
-        self._radio_json = QRadioButton("JSON (Geometri)")
+        self._radio_json = QRadioButton(t("dialogs.export_json", "JSON (Geometry)"))
         fmt_layout.addWidget(self._radio_json)
 
-        self._radio_png = QRadioButton("PNG (Canvas Goruntsu)")
+        self._radio_png = QRadioButton(t("dialogs.export_png", "PNG (Canvas Image)"))
         fmt_layout.addWidget(self._radio_png)
 
-        self._radio_svg = QRadioButton("SVG (Vektor Goruntu)")
+        self._radio_svg = QRadioButton(t("dialogs.export_svg", "SVG (Vector Image)"))
         fmt_layout.addWidget(self._radio_svg)
 
-        self._radio_cdt = QRadioButton("CDT Proje Dosyasi")
+        self._radio_cdt = QRadioButton(t("dialogs.export_cdt", "CDT Project File"))
         fmt_layout.addWidget(self._radio_cdt)
 
         layout.addWidget(fmt_group)
 
         # PDF sections
-        self._pdf_group = QGroupBox("PDF Bolumleri")
+        self._pdf_group = QGroupBox(t("dialogs.export_pdf_sections", "PDF Sections"))
         pdf_layout = QVBoxLayout(self._pdf_group)
 
         self._section_checks: dict[str, QCheckBox] = {}
         sections = [
-            ("A", "Geometri Ozeti"),
-            ("B", "Stage & Katman Yapisi"),
-            ("C", "Zayiflama Analizi"),
-            ("D", "Build-up Analizi"),
-            ("E", "Isin Profili"),
-            ("F", "Kalite Metrikleri"),
-            ("G", "Compton Analizi"),
-            ("H", "Model Varsayimlari"),
-            ("I", "Dogrulama Ozeti"),
+            ("A", t("dialogs.export_sec_a", "A \u2014 Geometry Summary")),
+            ("B", t("dialogs.export_sec_b", "B \u2014 Stage & Layer Structure")),
+            ("C", t("dialogs.export_sec_c", "C \u2014 Attenuation Analysis")),
+            ("D", t("dialogs.export_sec_d", "D \u2014 Build-up Analysis")),
+            ("E", t("dialogs.export_sec_e", "E \u2014 Beam Profile")),
+            ("F", t("dialogs.export_sec_f", "F \u2014 Quality Metrics")),
+            ("G", t("dialogs.export_sec_g", "G \u2014 Compton Analysis")),
+            ("H", t("dialogs.export_sec_h", "H \u2014 Model Assumptions")),
+            ("I", t("dialogs.export_sec_i", "I \u2014 Validation Summary")),
         ]
         for code, label in sections:
-            cb = QCheckBox(f"{code} — {label}")
+            cb = QCheckBox(label)
             cb.setChecked(True)
             if code in ("E", "F") and not has_simulation:
                 cb.setChecked(False)
@@ -88,11 +90,11 @@ class ExportDialog(QDialog):
 
         # Output path
         path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("Kayit Yeri:"))
+        path_layout.addWidget(QLabel(t("dialogs.export_path", "Save To:")))
         self._path_edit = QLineEdit()
         self._path_edit.setReadOnly(True)
         path_layout.addWidget(self._path_edit)
-        self._btn_browse = QPushButton("Gozat...")
+        self._btn_browse = QPushButton(t("dialogs.export_browse", "Browse..."))
         self._btn_browse.clicked.connect(self._browse)
         path_layout.addWidget(self._btn_browse)
         layout.addLayout(path_layout)
@@ -116,27 +118,45 @@ class ExportDialog(QDialog):
         """Open file dialog for output path."""
         if self._radio_pdf.isChecked():
             path, _ = QFileDialog.getSaveFileName(
-                self, "PDF Kaydet", "", "PDF Dosyalari (*.pdf)"
+                self,
+                t("dialogs.export_save_pdf", "Save PDF"),
+                "",
+                t("dialogs.export_filter_pdf", "PDF Files (*.pdf)"),
             )
         elif self._radio_csv.isChecked():
             path, _ = QFileDialog.getSaveFileName(
-                self, "CSV Kaydet", "", "CSV Dosyalari (*.csv)"
+                self,
+                t("dialogs.export_save_csv", "Save CSV"),
+                "",
+                t("dialogs.export_filter_csv", "CSV Files (*.csv)"),
             )
         elif self._radio_json.isChecked():
             path, _ = QFileDialog.getSaveFileName(
-                self, "JSON Kaydet", "", "JSON Dosyalari (*.json)"
+                self,
+                t("dialogs.export_save_json", "Save JSON"),
+                "",
+                t("dialogs.export_filter_json", "JSON Files (*.json)"),
             )
         elif self._radio_png.isChecked():
             path, _ = QFileDialog.getSaveFileName(
-                self, "PNG Kaydet", "", "PNG Dosyalari (*.png)"
+                self,
+                t("dialogs.export_save_png", "Save PNG"),
+                "",
+                t("dialogs.export_filter_png", "PNG Files (*.png)"),
             )
         elif self._radio_svg.isChecked():
             path, _ = QFileDialog.getSaveFileName(
-                self, "SVG Kaydet", "", "SVG Dosyalari (*.svg)"
+                self,
+                t("dialogs.export_save_svg", "Save SVG"),
+                "",
+                t("dialogs.export_filter_svg", "SVG Files (*.svg)"),
             )
         elif self._radio_cdt.isChecked():
             path, _ = QFileDialog.getSaveFileName(
-                self, "CDT Kaydet", "", "CDT Dosyalari (*.cdt)"
+                self,
+                t("dialogs.export_save_cdt", "Save CDT"),
+                "",
+                t("dialogs.export_filter_cdt", "CDT Files (*.cdt)"),
             )
         else:
             return

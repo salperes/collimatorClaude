@@ -7,26 +7,36 @@ from PyQt6.QtWidgets import (
     QToolBar, QToolButton, QLabel, QSlider, QWidget, QHBoxLayout, QMenu,
     QComboBox,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QSignalBlocker
 
+from app.core.i18n import t, TranslationManager
 from app.core.spectrum_models import effective_energy_kVp
 from app.models.geometry import CollimatorType
 
 
-_TYPE_NAMES = {
-    CollimatorType.FAN_BEAM: "Yelpaze (Fan Beam)",
-    CollimatorType.PENCIL_BEAM: "Kalem (Pencil Beam)",
-    CollimatorType.SLIT: "Yarık (Slit)",
-}
+def _get_type_name(ctype: CollimatorType) -> str:
+    """Get translated display name for a collimator type."""
+    return t(f"collimator_type.{ctype.name}", ctype.value)
 
-# FRD §4.2 FR-2.2 — Energy presets
+
+# FRD §4.2 FR-2.2 — Energy presets (technical names, keep as-is)
 _ENERGY_PRESETS: list[tuple[str, str, float]] = [
     ("Luggage Scan (80 kVp)", "kVp", 80),
     ("Cargo Low (160 kVp)", "kVp", 160),
+    ("Cargo Standard (225 kVp)", "kVp", 225),
     ("Cargo Medium (320 kVp)", "kVp", 320),
     ("LINAC Low (1 MeV)", "MeV", 1.0),
     ("LINAC Medium (3.5 MeV)", "MeV", 3.5),
     ("LINAC High (6 MeV)", "MeV", 6.0),
+]
+
+# Added filtration presets: (key, material_id, thickness_mm)
+# "Yok"/"None" is translatable; technical filter specs stay as-is
+_FILTER_PRESETS: list[tuple[str, str | None, float]] = [
+    ("none", None, 0.0),
+    ("1 mm Cu", "Cu", 1.0),
+    ("2 mm Al", "Al", 2.0),
+    ("0.5 mm Cu", "Cu", 0.5),
 ]
 
 
@@ -46,6 +56,7 @@ class MainToolBar(QToolBar):
     # Phase 6: File menu signals
     new_requested = pyqtSignal()
     open_requested = pyqtSignal()
+    import_external_requested = pyqtSignal()  # external format import
     save_requested = pyqtSignal()
     save_as_requested = pyqtSignal()
     export_requested = pyqtSignal()
@@ -60,23 +71,22 @@ class MainToolBar(QToolBar):
     def _build_ui(self):
         # File button with menu
         self._btn_file = QToolButton()
-        self._btn_file.setText("Dosya")
-        self._btn_file.setToolTip("Dosya islemleri")
+        self._file_menu = QMenu(self)
 
-        file_menu = QMenu(self)
-        file_menu.addAction("Yeni", self.new_requested.emit)
-        file_menu.addAction("Ac...", self.open_requested.emit)
-        file_menu.addSeparator()
-        file_menu.addAction("Kaydet", self.save_requested.emit)
-        file_menu.addAction("Farkli Kaydet...", self.save_as_requested.emit)
-        file_menu.addSeparator()
-        self._recent_menu = file_menu.addMenu("Son Kullanilanlar")
-        file_menu.addSeparator()
-        file_menu.addAction("Versiyon Gecmisi...", self.version_history_requested.emit)
-        file_menu.addSeparator()
-        file_menu.addAction("Disa Aktar...", self.export_requested.emit)
+        self._action_new = self._file_menu.addAction("", self.new_requested.emit)
+        self._action_open = self._file_menu.addAction("", self.open_requested.emit)
+        self._action_import_ext = self._file_menu.addAction("", self.import_external_requested.emit)
+        self._file_menu.addSeparator()
+        self._action_save = self._file_menu.addAction("", self.save_requested.emit)
+        self._action_save_as = self._file_menu.addAction("", self.save_as_requested.emit)
+        self._file_menu.addSeparator()
+        self._recent_menu = self._file_menu.addMenu("")
+        self._file_menu.addSeparator()
+        self._action_version_history = self._file_menu.addAction("", self.version_history_requested.emit)
+        self._file_menu.addSeparator()
+        self._action_export = self._file_menu.addAction("", self.export_requested.emit)
 
-        self._btn_file.setMenu(file_menu)
+        self._btn_file.setMenu(self._file_menu)
         self._btn_file.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.addWidget(self._btn_file)
 
@@ -84,20 +94,20 @@ class MainToolBar(QToolBar):
 
         # Collimator type button with menu
         self._btn_type = QToolButton()
-        self._btn_type.setText("Kolimatör Tipi")
-        self._btn_type.setToolTip("Kolimatör tipini seçin")
 
-        type_menu = QMenu(self)
-        for ctype, display_name in _TYPE_NAMES.items():
-            action = type_menu.addAction(display_name)
+        self._type_menu = QMenu(self)
+        self._type_actions: list[tuple[CollimatorType, object]] = []
+        for ctype in CollimatorType:
+            action = self._type_menu.addAction("")
             action.triggered.connect(
-                lambda checked, t=ctype: self._on_type_selected(t)
+                lambda checked, ct=ctype: self._on_type_selected(ct)
             )
-        type_menu.addSeparator()
-        action_custom = type_menu.addAction("Özel (Boş)")
-        action_custom.triggered.connect(self._on_custom_selected)
+            self._type_actions.append((ctype, action))
+        self._type_menu.addSeparator()
+        self._action_custom = self._type_menu.addAction("")
+        self._action_custom.triggered.connect(self._on_custom_selected)
 
-        self._btn_type.setMenu(type_menu)
+        self._btn_type.setMenu(self._type_menu)
         self._btn_type.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.addWidget(self._btn_type)
 
@@ -112,18 +122,16 @@ class MainToolBar(QToolBar):
         # Mode toggle (kVp / MeV)
         self._btn_mode = QToolButton()
         self._btn_mode.setText("kVp")
-        self._btn_mode.setToolTip("Enerji modu: kVp (X-ray tup) / MeV (LINAC)")
         self._btn_mode.setCheckable(True)
         self._btn_mode.setChecked(False)  # unchecked = kVp
         self._btn_mode.toggled.connect(self._on_mode_toggled)
         energy_layout.addWidget(self._btn_mode)
 
-        energy_label = QLabel("Enerji:")
-        energy_layout.addWidget(energy_label)
+        self._lbl_energy = QLabel()
+        energy_layout.addWidget(self._lbl_energy)
 
         self._slider_energy = QSlider(Qt.Orientation.Horizontal)
         self._slider_energy.setFixedWidth(180)
-        self._slider_energy.setToolTip("Foton enerjisi")
         energy_layout.addWidget(self._slider_energy)
 
         self._lbl_energy_value = QLabel()
@@ -133,8 +141,6 @@ class MainToolBar(QToolBar):
 
         # Presets dropdown
         self._btn_presets = QToolButton()
-        self._btn_presets.setText("Preset")
-        self._btn_presets.setToolTip("Enerji preset'leri (FRD §4.2)")
         preset_menu = QMenu(self)
         for name, mode, val in _ENERGY_PRESETS:
             action = preset_menu.addAction(name)
@@ -147,24 +153,30 @@ class MainToolBar(QToolBar):
 
         # Target material selector (kVp mode only)
         self._combo_target = QComboBox()
-        self._combo_target.setToolTip("X-ray tup target malzemesi")
-        self._combo_target.addItem("W (Tungsten)", "W")
-        self._combo_target.addItem("Mo (Molibden)", "Mo")
-        self._combo_target.addItem("Rh (Rodyum)", "Rh")
-        self._combo_target.addItem("Cu (Bakir)", "Cu")
-        self._combo_target.addItem("Ag (Gumus)", "Ag")
+        self._combo_target.addItem("", "W")
+        self._combo_target.addItem("", "Mo")
+        self._combo_target.addItem("", "Rh")
+        self._combo_target.addItem("", "Cu")
+        self._combo_target.addItem("", "Ag")
         self._combo_target.setCurrentIndex(0)
         self._combo_target.currentIndexChanged.connect(self._on_tube_param_changed)
         energy_layout.addWidget(self._combo_target)
 
         # Window type selector (kVp mode only)
         self._combo_window = QComboBox()
-        self._combo_window.setToolTip("Tup pencere tipi")
-        self._combo_window.addItem("Cam (1mm Al-eq)", "glass")
-        self._combo_window.addItem("Be (0.5mm)", "Be")
+        self._combo_window.addItem("", "glass")
+        self._combo_window.addItem("", "Be")
         self._combo_window.setCurrentIndex(0)
         self._combo_window.currentIndexChanged.connect(self._on_tube_param_changed)
         energy_layout.addWidget(self._combo_window)
+
+        # Added filtration selector (kVp mode only)
+        self._combo_filter = QComboBox()
+        for key, mat_id, thickness in _FILTER_PRESETS:
+            self._combo_filter.addItem(key, (mat_id, thickness))
+        self._combo_filter.setCurrentIndex(1)  # default: 1mm Cu
+        self._combo_filter.currentIndexChanged.connect(self._on_tube_param_changed)
+        energy_layout.addWidget(self._combo_filter)
 
         self.addWidget(energy_widget)
 
@@ -175,8 +187,6 @@ class MainToolBar(QToolBar):
 
         # Grid spacing selector
         self._btn_grid = QToolButton()
-        self._btn_grid.setText("Grid: 10mm")
-        self._btn_grid.setToolTip("Izgara aralığı")
         grid_menu = QMenu(self)
         for spacing in [1, 5, 10, 50]:
             action = grid_menu.addAction(f"{spacing} mm")
@@ -191,22 +201,16 @@ class MainToolBar(QToolBar):
 
         # Simulate button
         self._btn_simulate = QToolButton()
-        self._btn_simulate.setText("Simüle Et")
-        self._btn_simulate.setToolTip("Işın izleme simülasyonunu başlat")
         self._btn_simulate.setProperty("cssClass", "primary")
         self.addWidget(self._btn_simulate)
 
         # Compare button (G-3: multi-energy overlay)
         self._btn_compare = QToolButton()
-        self._btn_compare.setText("Karsilastir")
-        self._btn_compare.setToolTip("Birden fazla enerjide simülasyon karsilastirmasi")
         self._btn_compare.clicked.connect(self.compare_requested.emit)
         self.addWidget(self._btn_compare)
 
         # Scatter toggle button
         self._btn_scatter = QToolButton()
-        self._btn_scatter.setText("Scatter: OFF")
-        self._btn_scatter.setToolTip("Compton scatter simulasyonunu dahil et")
         self._btn_scatter.setCheckable(True)
         self._btn_scatter.setChecked(False)
         self._btn_scatter.toggled.connect(self._on_scatter_toggled)
@@ -214,15 +218,11 @@ class MainToolBar(QToolBar):
 
         # Threshold settings button (G-10)
         self._btn_thresholds = QToolButton()
-        self._btn_thresholds.setText("Esikler")
-        self._btn_thresholds.setToolTip("Kalite metrik esik degerlerini duzenle")
         self._btn_thresholds.clicked.connect(self.threshold_edit_requested.emit)
         self.addWidget(self._btn_thresholds)
 
         # Validation button
         self._btn_validation = QToolButton()
-        self._btn_validation.setText("Dogrulama")
-        self._btn_validation.setToolTip("Fizik motoru dogrulama testlerini calistir")
         self._btn_validation.clicked.connect(self.validation_requested.emit)
         self.addWidget(self._btn_validation)
 
@@ -230,26 +230,144 @@ class MainToolBar(QToolBar):
 
         # Dimensions toggle button
         self._btn_dimensions = QToolButton()
-        self._btn_dimensions.setText("Boyutlar")
-        self._btn_dimensions.setToolTip("Ölçü çizgilerini göster/gizle")
         self._btn_dimensions.setCheckable(True)
         self._btn_dimensions.setChecked(True)
         self.addWidget(self._btn_dimensions)
 
         # Fit to content button
         self._btn_fit = QToolButton()
-        self._btn_fit.setText("Sığdır")
-        self._btn_fit.setToolTip("Tüm içeriğe zoom yap (F)")
         self.addWidget(self._btn_fit)
 
         self.addSeparator()
 
         # About button
         self._btn_about = QToolButton()
-        self._btn_about.setText("Hakkinda")
-        self._btn_about.setToolTip("Uygulama hakkinda bilgi")
         self._btn_about.clicked.connect(self.about_requested.emit)
         self.addWidget(self._btn_about)
+
+        self.addSeparator()
+
+        # Language selector
+        self._combo_lang = QComboBox()
+        from app.constants import SUPPORTED_LANGUAGES
+        for code, display in SUPPORTED_LANGUAGES:
+            self._combo_lang.addItem(display, code)
+        # Set current from TranslationManager
+        mgr = TranslationManager.instance()
+        for i in range(self._combo_lang.count()):
+            if self._combo_lang.itemData(i) == mgr.lang:
+                self._combo_lang.setCurrentIndex(i)
+                break
+        self._combo_lang.currentIndexChanged.connect(self._on_language_changed)
+        self.addWidget(self._combo_lang)
+
+        # Apply translations and register for language changes
+        self.retranslate_ui()
+        TranslationManager.on_language_changed(self.retranslate_ui)
+
+    # ── i18n ─────────────────────────────────────────────────────────
+
+    def retranslate_ui(self) -> None:
+        """Update all translatable text from the current language."""
+        # File button + menu
+        self._btn_file.setText(t("toolbar.file", "File"))
+        self._btn_file.setToolTip(t("toolbar.file_tooltip", "File operations"))
+
+        self._action_new.setText(t("toolbar.new", "New"))
+        self._action_open.setText(t("toolbar.open", "Open..."))
+        self._action_import_ext.setText(t("toolbar.import_external", "Import External Format..."))
+        self._action_save.setText(t("toolbar.save", "Save"))
+        self._action_save_as.setText(t("toolbar.save_as", "Save As..."))
+        self._recent_menu.setTitle(t("toolbar.recent", "Recent"))
+        self._action_version_history.setText(t("toolbar.version_history", "Version History..."))
+        self._action_export.setText(t("toolbar.export", "Export..."))
+
+        # Collimator type button + menu
+        self._btn_type.setText(t("toolbar.collimator_type", "Collimator Type"))
+        self._btn_type.setToolTip(t("toolbar.collimator_type_tooltip", "Select collimator type"))
+        for ctype, action in self._type_actions:
+            action.setText(_get_type_name(ctype))
+        self._action_custom.setText(t("toolbar.custom_blank", "Custom (Blank)"))
+
+        # Energy mode
+        self._btn_mode.setToolTip(t("toolbar.energy_mode_tooltip", "Energy mode: kVp (X-ray tube) / MeV (LINAC)"))
+        self._lbl_energy.setText(t("toolbar.energy", "Energy:"))
+        self._slider_energy.setToolTip(t("toolbar.photon_energy", "Photon energy"))
+
+        # Presets
+        self._btn_presets.setText(t("toolbar.preset", "Preset"))
+        self._btn_presets.setToolTip(t("toolbar.preset_tooltip", "Energy presets"))
+
+        # Target combo
+        self._combo_target.setToolTip(t("toolbar.target_tooltip", "X-ray tube target material"))
+        with QSignalBlocker(self._combo_target):
+            self._combo_target.setItemText(0, t("target.W", "W (Tungsten)"))
+            self._combo_target.setItemText(1, t("target.Mo", "Mo (Molybdenum)"))
+            self._combo_target.setItemText(2, t("target.Rh", "Rh (Rhodium)"))
+            self._combo_target.setItemText(3, t("target.Cu", "Cu (Copper)"))
+            self._combo_target.setItemText(4, t("target.Ag", "Ag (Silver)"))
+
+        # Window combo
+        self._combo_window.setToolTip(t("toolbar.window_tooltip", "Tube window type"))
+        with QSignalBlocker(self._combo_window):
+            self._combo_window.setItemText(0, t("toolbar.window_glass", "Glass (1mm Al-eq)"))
+            self._combo_window.setItemText(1, t("toolbar.window_be", "Be (0.5mm)"))
+
+        # Filter combo
+        self._combo_filter.setToolTip(t("toolbar.filter_tooltip", "Added filtration (external filter)"))
+        with QSignalBlocker(self._combo_filter):
+            self._combo_filter.setItemText(0, t("toolbar.filter_none", "None"))
+            for i, (key, _mat, _th) in enumerate(_FILTER_PRESETS):
+                if i > 0:  # index 0 already set above
+                    self._combo_filter.setItemText(i, key)
+
+        # Grid
+        self._btn_grid.setText("Grid: 10mm")
+        self._btn_grid.setToolTip(t("toolbar.grid_tooltip", "Grid spacing"))
+
+        # Simulate
+        self._btn_simulate.setText(t("toolbar.simulate", "Simulate"))
+        self._btn_simulate.setToolTip(t("toolbar.simulate_tooltip", "Start ray-tracing simulation"))
+
+        # Compare
+        self._btn_compare.setText(t("toolbar.compare", "Compare"))
+        self._btn_compare.setToolTip(t("toolbar.compare_tooltip", "Multi-energy simulation comparison"))
+
+        # Scatter
+        self._btn_scatter.setText(f"Scatter: {'ON' if self._btn_scatter.isChecked() else 'OFF'}")
+        self._btn_scatter.setToolTip(t("toolbar.scatter_tooltip", "Include Compton scatter simulation"))
+
+        # Thresholds
+        self._btn_thresholds.setText(t("toolbar.thresholds", "Thresholds"))
+        self._btn_thresholds.setToolTip(t("toolbar.thresholds_tooltip", "Edit quality metric thresholds"))
+
+        # Validation
+        self._btn_validation.setText(t("toolbar.validation", "Validation"))
+        self._btn_validation.setToolTip(t("toolbar.validation_tooltip", "Run physics engine validation tests"))
+
+        # Dimensions
+        self._btn_dimensions.setText(t("toolbar.dimensions", "Dimensions"))
+        self._btn_dimensions.setToolTip(t("toolbar.dimensions_tooltip", "Show/hide dimension lines"))
+
+        # Fit
+        self._btn_fit.setText(t("toolbar.fit", "Fit"))
+        self._btn_fit.setToolTip(t("toolbar.fit_tooltip", "Zoom to fit all content (F)"))
+
+        # About
+        self._btn_about.setText(t("toolbar.about", "About"))
+        self._btn_about.setToolTip(t("toolbar.about_tooltip", "About the application"))
+
+        # Language selector
+        self._combo_lang.setToolTip(t("toolbar.language_tooltip", "Interface language"))
+
+    # ── Language selector ────────────────────────────────────────────
+
+    def _on_language_changed(self, idx: int) -> None:
+        lang = self._combo_lang.itemData(idx)
+        if lang:
+            from PyQt6.QtCore import QSettings
+            QSettings().setValue("language", lang)
+            TranslationManager.instance().set_language(lang)
 
     # ── Energy mode & presets ────────────────────────────────────────
 
@@ -258,10 +376,11 @@ class MainToolBar(QToolBar):
         self._energy_mode = "MeV" if checked else "kVp"
         self._btn_mode.setText(self._energy_mode)
         self._apply_mode_settings()
-        # Target/window selectors only relevant in kVp mode
+        # Target/window/filter selectors only relevant in kVp mode
         is_kvp = self._energy_mode == "kVp"
         self._combo_target.setVisible(is_kvp)
         self._combo_window.setVisible(is_kvp)
+        self._combo_filter.setVisible(is_kvp)
         self.energy_mode_changed.emit(self._energy_mode)
         # Re-emit energy with new conversion
         self._on_energy_changed(self._slider_energy.value())
@@ -271,9 +390,9 @@ class MainToolBar(QToolBar):
         self._slider_energy.blockSignals(True)
         if self._energy_mode == "kVp":
             self._slider_energy.setMinimum(80)
-            self._slider_energy.setMaximum(300)
-            self._slider_energy.setSingleStep(10)
-            self._slider_energy.setValue(160)
+            self._slider_energy.setMaximum(450)
+            self._slider_energy.setSingleStep(5)
+            self._slider_energy.setValue(225)
         else:  # MeV
             # Slider in keV: 500–6000
             self._slider_energy.setMinimum(500)
@@ -326,11 +445,11 @@ class MainToolBar(QToolBar):
     # ── Type / grid ──────────────────────────────────────────────────
 
     def _on_type_selected(self, ctype: CollimatorType) -> None:
-        self._btn_type.setText(_TYPE_NAMES.get(ctype, "Kolimatör Tipi"))
+        self._btn_type.setText(_get_type_name(ctype))
         self.collimator_type_changed.emit(ctype)
 
     def _on_custom_selected(self) -> None:
-        self._btn_type.setText("Özel")
+        self._btn_type.setText(t("toolbar.custom", "Custom"))
         self.custom_template_requested.emit()
 
     def _on_grid_selected(self, spacing: int) -> None:
@@ -398,3 +517,13 @@ class MainToolBar(QToolBar):
         if wt == "Be":
             return 0.5
         return 1.0  # glass (Al-equivalent)
+
+    def get_added_filtration(self) -> list[tuple[str, float]]:
+        """Current added filtration list: [(material_id, thickness_mm), ...]."""
+        data = self._combo_filter.currentData()
+        if data is None:
+            return []
+        mat_id, thickness = data
+        if mat_id is None or thickness <= 0:
+            return []
+        return [(mat_id, thickness)]

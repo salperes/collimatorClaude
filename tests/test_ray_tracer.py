@@ -23,7 +23,6 @@ from app.core.units import mm_to_cm, deg_to_rad
 from app.models.geometry import (
     ApertureConfig,
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
     DetectorConfig,
@@ -40,17 +39,20 @@ def _make_slit_geometry(
     outer_height_mm: float = 200.0,
     slit_width_mm: float = 5.0,
     layer_material: str = "Pb",
-    layer_thickness_mm: float = 47.5,
     source_y: float = -500.0,
     detector_y: float = 500.0,
+    y_position: float = -100.0,
 ) -> CollimatorGeometry:
-    """Create a simple single-stage slit geometry."""
-    layer = CollimatorLayer(material_id=layer_material, thickness=layer_thickness_mm)
+    """Create a simple single-stage slit geometry.
+
+    Default y_position=-100 centers a 200mm stage around Y=0.
+    """
     stage = CollimatorStage(
         outer_width=outer_width_mm,
         outer_height=outer_height_mm,
         aperture=ApertureConfig(slit_width=slit_width_mm),
-        layers=[layer],
+        material_id=layer_material,
+        y_position=y_position,
     )
     return CollimatorGeometry(
         type=CollimatorType.SLIT,
@@ -66,15 +68,14 @@ def _make_fan_geometry(
     outer_width_mm: float = 150.0,
     outer_height_mm: float = 200.0,
     layer_material: str = "Pb",
-    layer_thickness_mm: float = 50.0,
 ) -> CollimatorGeometry:
     """Create a single-stage fan-beam geometry."""
-    layer = CollimatorLayer(material_id=layer_material, thickness=layer_thickness_mm)
     stage = CollimatorStage(
         outer_width=outer_width_mm,
         outer_height=outer_height_mm,
         aperture=ApertureConfig(fan_angle=fan_angle_deg, fan_slit_width=slit_width_mm),
-        layers=[layer],
+        material_id=layer_material,
+        y_position=-100.0,
     )
     return CollimatorGeometry(
         type=CollimatorType.FAN_BEAM,
@@ -89,15 +90,14 @@ def _make_pencil_geometry(
     outer_width_mm: float = 100.0,
     outer_height_mm: float = 100.0,
     layer_material: str = "Pb",
-    layer_thickness_mm: float = 47.5,
 ) -> CollimatorGeometry:
     """Create a single-stage pencil-beam geometry."""
-    layer = CollimatorLayer(material_id=layer_material, thickness=layer_thickness_mm)
     stage = CollimatorStage(
         outer_width=outer_width_mm,
         outer_height=outer_height_mm,
         aperture=ApertureConfig(pencil_diameter=pencil_diameter_mm),
-        layers=[layer],
+        material_id=layer_material,
+        y_position=-50.0,
     )
     return CollimatorGeometry(
         type=CollimatorType.PENCIL_BEAM,
@@ -113,28 +113,28 @@ def _make_pencil_geometry(
 class TestStageLayout:
     """Stage Y-position computation tests."""
 
-    def test_single_stage_centered(self):
-        """Single stage is centered on Y=0."""
-        geo = _make_slit_geometry(outer_height_mm=200.0)
+    def test_single_stage_position(self):
+        """Single stage at y_position=-100mm → y_top=-10cm."""
+        geo = _make_slit_geometry(outer_height_mm=200.0, y_position=-100.0)
         layouts = compute_stage_layout(geo)
 
         assert len(layouts) == 1
         sl = layouts[0]
-        assert sl.y_top == pytest.approx(-mm_to_cm(100), abs=1e-6)
+        assert sl.y_top == pytest.approx(mm_to_cm(-100), abs=1e-6)
         assert sl.y_bottom == pytest.approx(mm_to_cm(100), abs=1e-6)
         assert sl.half_width == pytest.approx(mm_to_cm(50), abs=1e-6)
 
-    def test_two_stages_with_gap(self):
-        """Two stages with a gap are positioned correctly."""
+    def test_two_stages_explicit_positions(self):
+        """Two stages with explicit y_position are laid out correctly."""
         stage1 = CollimatorStage(
             outer_width=100.0, outer_height=100.0,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[], gap_after=20.0,
+            y_position=0.0,
         )
         stage2 = CollimatorStage(
             outer_width=80.0, outer_height=60.0,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[],
+            y_position=120.0,  # 20mm gap after stage1
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -142,26 +142,26 @@ class TestStageLayout:
             stages=[stage1, stage2],
             detector=DetectorConfig(position=Point2D(0, 500)),
         )
-        # total_height = 100 + 20 + 60 = 180 mm = 18 cm
         layouts = compute_stage_layout(geo)
 
         assert len(layouts) == 2
-        # y_offset starts at -9.0 cm
-        assert layouts[0].y_top == pytest.approx(-9.0, abs=1e-6)
-        assert layouts[0].y_bottom == pytest.approx(-9.0 + 10.0, abs=1e-6)
-        # gap = 2.0 cm
-        assert layouts[1].y_top == pytest.approx(-9.0 + 10.0 + 2.0, abs=1e-6)
-        assert layouts[1].y_bottom == pytest.approx(-9.0 + 10.0 + 2.0 + 6.0, abs=1e-6)
+        assert layouts[0].y_top == pytest.approx(0.0, abs=1e-6)
+        assert layouts[0].y_bottom == pytest.approx(10.0, abs=1e-6)
+        assert layouts[1].y_top == pytest.approx(12.0, abs=1e-6)
+        assert layouts[1].y_bottom == pytest.approx(18.0, abs=1e-6)
 
-    def test_three_stages_total_height(self):
-        """Total span matches total_height for 3 stages."""
+    def test_three_stages_explicit(self):
+        """Three stages with explicit y_position."""
         stages = [
-            CollimatorStage(outer_width=100, outer_height=80, layers=[], gap_after=10,
-                            aperture=ApertureConfig(slit_width=5)),
-            CollimatorStage(outer_width=100, outer_height=60, layers=[], gap_after=5,
-                            aperture=ApertureConfig(slit_width=5)),
-            CollimatorStage(outer_width=100, outer_height=40, layers=[],
-                            aperture=ApertureConfig(slit_width=5)),
+            CollimatorStage(outer_width=100, outer_height=80,
+                            aperture=ApertureConfig(slit_width=5),
+                            y_position=0.0),
+            CollimatorStage(outer_width=100, outer_height=60,
+                            aperture=ApertureConfig(slit_width=5),
+                            y_position=90.0),
+            CollimatorStage(outer_width=100, outer_height=40,
+                            aperture=ApertureConfig(slit_width=5),
+                            y_position=155.0),
         ]
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -170,8 +170,24 @@ class TestStageLayout:
             detector=DetectorConfig(position=Point2D(0, 500)),
         )
         layouts = compute_stage_layout(geo)
-        span = layouts[-1].y_bottom - layouts[0].y_top
-        assert span == pytest.approx(mm_to_cm(geo.total_height), rel=1e-6)
+        assert len(layouts) == 3
+        assert layouts[2].y_bottom == pytest.approx(mm_to_cm(195), rel=1e-6)
+
+    def test_x_center_from_x_offset(self):
+        """Stage x_offset maps to layout x_center."""
+        stage = CollimatorStage(
+            outer_width=100.0, outer_height=100.0,
+            aperture=ApertureConfig(slit_width=5.0),
+            y_position=0.0, x_offset=15.0,
+        )
+        geo = CollimatorGeometry(
+            type=CollimatorType.SLIT,
+            source=SourceConfig(position=Point2D(0, -500)),
+            stages=[stage],
+            detector=DetectorConfig(position=Point2D(0, 500)),
+        )
+        layouts = compute_stage_layout(geo)
+        assert layouts[0].x_center == pytest.approx(mm_to_cm(15.0), abs=1e-6)
 
 
 # ── Ray Geometry ──
@@ -264,13 +280,13 @@ class TestApertureCheck:
 
 
 class TestLayerIntersection:
-    """Layer path length computation tests."""
+    """Layer path length computation tests (solid body model)."""
 
     def test_single_layer_nonzero_path(self):
-        """Ray hitting single layer has nonzero path length."""
+        """Ray hitting stage body has nonzero path length."""
         tracer = RayTracer()
         geo = _make_slit_geometry(
-            slit_width_mm=5.0, layer_thickness_mm=47.5,
+            slit_width_mm=5.0,
             outer_width_mm=100.0,
         )
         # Ray at moderate angle, hits the body
@@ -287,7 +303,7 @@ class TestLayerIntersection:
     def test_angled_ray_longer_path(self):
         """Angled ray has longer path through material than straight ray."""
         tracer = RayTracer()
-        geo = _make_slit_geometry(slit_width_mm=5.0, layer_thickness_mm=47.5)
+        geo = _make_slit_geometry(slit_width_mm=5.0)
 
         # Two rays at different angles, both hitting body
         ray_small = Ray(0.0, mm_to_cm(-500), 0.05, 100)
@@ -304,15 +320,14 @@ class TestLayerIntersection:
             # Larger angle → longer path per Y-step (dy/cos(angle))
             assert blocked_l[0].total_path_length >= blocked_s[0].total_path_length
 
-    def test_multi_layer_accumulation(self):
-        """Two layers produce separate material intersections."""
+    def test_single_material_accumulation(self):
+        """Ray hitting solid stage body accumulates material path length."""
         tracer = RayTracer()
-        layer1 = CollimatorLayer(order=0, material_id="W", thickness=10.0)
-        layer2 = CollimatorLayer(order=1, material_id="Pb", thickness=35.0)
         stage = CollimatorStage(
             outer_width=100.0, outer_height=200.0,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[layer1, layer2],
+            material_id="Pb",
+            y_position=-100.0,
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -327,22 +342,18 @@ class TestLayerIntersection:
 
         if blocked:
             materials = {ix.material_id for ix in blocked[0].layer_intersections}
-            # Should have at least one material (both if ray crosses both layers)
+            # Should have at least one material intersection
             assert len(materials) >= 1
+            assert "Pb" in materials
 
-    def test_composite_layer_two_materials(self):
-        """Composite layer produces two material intersections."""
+    def test_single_material_near_aperture(self):
+        """Ray near aperture edge hits body and produces material intersection."""
         tracer = RayTracer()
-        layer = CollimatorLayer(
-            order=0, material_id="Pb", thickness=47.5,
-            inner_material_id="W", inner_width=10.0,
-        )
-        assert layer.is_composite
-
         stage = CollimatorStage(
             outer_width=100.0, outer_height=200.0,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[layer],
+            material_id="Pb",
+            y_position=-100.0,
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -351,23 +362,24 @@ class TestLayerIntersection:
             detector=DetectorConfig(position=Point2D(0, 500)),
         )
 
-        # Ray that enters the body near the aperture edge → hits inner zone
+        # Ray that enters the body near the aperture edge
         ray = Ray(0.0, mm_to_cm(-500), 0.05, 100)
         results = tracer.trace_ray(ray, geo)
         blocked = [r for r in results if not r.passes_aperture]
 
         if blocked:
             materials = {ix.material_id for ix in blocked[0].layer_intersections}
-            # Should have W (inner) and Pb (outer) if ray crosses both zones
-            assert "W" in materials or "Pb" in materials
+            assert "Pb" in materials
 
-    def test_no_layers_no_attenuation(self):
-        """Stage with no layers → ray passes through body without intersections."""
+    def test_solid_body_all_body_is_material(self):
+        """In solid body model, any point outside aperture hits material."""
         tracer = RayTracer()
+        # Small aperture, large body → most rays hit material
         stage = CollimatorStage(
-            outer_width=100.0, outer_height=200.0,
-            aperture=ApertureConfig(slit_width=5.0),
-            layers=[],
+            outer_width=200.0, outer_height=200.0,
+            aperture=ApertureConfig(slit_width=2.0),
+            material_id="Pb",
+            y_position=-100.0,
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -379,10 +391,9 @@ class TestLayerIntersection:
         ray = Ray(0.0, mm_to_cm(-500), 0.1, 100)
         results = tracer.trace_ray(ray, geo)
 
-        # Even if ray hits body area, no layers → no material intersections
-        # The stage intersection should reflect this
-        for sr in results:
-            assert sr.total_path_length == 0.0
+        blocked = [r for r in results if not r.passes_aperture]
+        assert len(blocked) == 1
+        assert blocked[0].total_path_length > 0
 
 
 # ── Multi-Stage ──
@@ -394,16 +405,17 @@ class TestMultiStage:
     def test_two_stage_both_blocked(self):
         """Ray at large angle is blocked by both stages."""
         tracer = RayTracer()
-        layer = CollimatorLayer(material_id="Pb", thickness=47.5)
         stage1 = CollimatorStage(
-            outer_width=100, outer_height=100,
+            outer_width=200, outer_height=100,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[layer], gap_after=20.0,
+            material_id="Pb",
+            y_position=-110.0,
         )
         stage2 = CollimatorStage(
-            outer_width=100, outer_height=100,
+            outer_width=200, outer_height=100,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[CollimatorLayer(material_id="W", thickness=47.5)],
+            material_id="W",
+            y_position=10.0,  # 20mm gap after stage1
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -423,16 +435,17 @@ class TestMultiStage:
     def test_gap_contributes_no_material(self):
         """Inter-stage gap has no material intersections."""
         tracer = RayTracer()
-        layer = CollimatorLayer(material_id="Pb", thickness=47.5)
         stage1 = CollimatorStage(
             outer_width=100, outer_height=50,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[layer], gap_after=50.0,
+            material_id="Pb",
+            y_position=0.0,
         )
         stage2 = CollimatorStage(
             outer_width=100, outer_height=50,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[CollimatorLayer(material_id="Pb", thickness=47.5)],
+            material_id="Pb",
+            y_position=100.0,  # 50mm gap
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
@@ -453,13 +466,14 @@ class TestMultiStage:
             CollimatorStage(
                 outer_width=100, outer_height=80,
                 aperture=ApertureConfig(slit_width=5.0),
-                layers=[CollimatorLayer(material_id="Pb", thickness=47.5)],
-                gap_after=10.0,
+                material_id="Pb",
+                y_position=0.0,
             ),
             CollimatorStage(
                 outer_width=100, outer_height=60,
                 aperture=ApertureConfig(slit_width=5.0),
-                layers=[CollimatorLayer(material_id="W", thickness=47.5)],
+                material_id="W",
+                y_position=90.0,
             ),
         ]
         geo = CollimatorGeometry(

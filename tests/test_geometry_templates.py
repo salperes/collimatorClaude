@@ -1,7 +1,7 @@
 """Tests for geometry template factories.
 
 Validates that each collimator type template produces correct
-structure: stage counts, layer materials, aperture configs, source/detector.
+structure: stage counts, material, y_position, aperture configs, source/detector.
 """
 
 import pytest
@@ -47,30 +47,42 @@ class TestFanBeamTemplate:
             assert stage.outer_width > 0
             assert stage.outer_height > 0
 
-    def test_all_layers_have_valid_material_ids(self):
+    def test_stage_materials_are_valid(self):
         for stage in self.geo.stages:
-            for layer in stage.layers:
-                assert layer.material_id in MATERIAL_IDS
+            assert stage.material_id in MATERIAL_IDS
 
-    def test_all_layers_have_positive_thickness(self):
-        for stage in self.geo.stages:
-            for layer in stage.layers:
-                assert layer.thickness > 0
+    def test_fan_beam_stage_0(self):
+        """Stage 0 (Dahili): Pb, y=25."""
+        stage = self.geo.stages[0]
+        assert stage.material_id == "Pb"
+        assert stage.y_position == 25.0
+
+    def test_fan_beam_stage_1(self):
+        """Stage 1 (Yelpaze): W, y=155."""
+        stage = self.geo.stages[1]
+        assert stage.material_id == "W"
+        assert stage.y_position == 155.0
+
+    def test_fan_beam_stage_2(self):
+        """Stage 2 (Penumbra): Pb, y=235."""
+        stage = self.geo.stages[2]
+        assert stage.material_id == "Pb"
+        assert stage.y_position == 235.0
 
     def test_fan_angle_set_on_stages(self):
         for stage in self.geo.stages:
             assert stage.aperture.fan_angle is not None
             assert stage.aperture.fan_angle > 0
 
-    def test_gaps_between_stages(self):
-        assert self.geo.stages[0].gap_after > 0
-        assert self.geo.stages[1].gap_after > 0
-        assert self.geo.stages[2].gap_after == 0  # last stage
+    def test_y_positions_increasing(self):
+        positions = [s.y_position for s in self.geo.stages]
+        assert positions == sorted(positions)
+        assert positions[0] > 0  # gap between source and first stage
 
-    def test_source_above_collimator(self):
-        assert self.geo.source.position.y < 0
+    def test_source_at_origin(self):
+        assert self.geo.source.position.y == 0.0
 
-    def test_detector_below_collimator(self):
+    def test_detector_below_source(self):
         assert self.geo.detector.position.y > 0
 
     def test_total_height_positive(self):
@@ -97,16 +109,19 @@ class TestPencilBeamTemplate:
         assert self.geo.stages[0].aperture.pencil_diameter is not None
         assert self.geo.stages[0].aperture.pencil_diameter > 0
 
-    def test_has_layers(self):
-        assert len(self.geo.stages[0].layers) >= 1
+    def test_has_material(self):
+        assert self.geo.stages[0].material_id
 
-    def test_all_layers_valid(self):
-        for layer in self.geo.stages[0].layers:
-            assert layer.material_id in MATERIAL_IDS
-            assert layer.thickness > 0
+    def test_pencil_beam_material(self):
+        """Pencil-beam: Pb."""
+        stage = self.geo.stages[0]
+        assert stage.material_id == "Pb"
+
+    def test_pencil_beam_y_position(self):
+        assert self.geo.stages[0].y_position == 0.0
 
     def test_source_and_detector_present(self):
-        assert self.geo.source.position.y < 0
+        assert self.geo.source.position.y == 0.0
         assert self.geo.detector.position.y > 0
 
 
@@ -145,11 +160,14 @@ class TestSlitTemplate:
         assert stage.outer_width == 200.0
         assert stage.outer_height == 50.0
 
-    def test_source_150mm_from_collimator(self):
-        # Source should be 150mm above collimator entry
-        src_y = self.geo.source.position.y
-        stage_top = -self.geo.total_height / 2.0
-        assert abs(stage_top - src_y) == pytest.approx(150.0)
+    def test_slit_material(self):
+        """Slit: Pb."""
+        stage = self.geo.stages[0]
+        assert stage.material_id == "Pb"
+
+    def test_slit_y_position(self):
+        """Slit: collimator at y=150mm."""
+        assert self.geo.stages[0].y_position == pytest.approx(150.0)
 
 
 # ---------------------------------------------------------------------------

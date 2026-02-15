@@ -63,3 +63,9 @@ class CollapsibleSection(QWidget):
         self._expanded = False
         self._content_frame.setVisible(False)
         self._header.setText(f"  \u25B6  {self._title}")
+
+    def set_title(self, title: str) -> None:
+        """Update the section title (for i18n retranslation)."""
+        self._title = title
+        arrow = "\u25BC" if self._expanded else "\u25B6"
+        self._header.setText(f"  {arrow}  {self._title}")

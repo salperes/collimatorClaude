@@ -1,7 +1,8 @@
 """Stage graphics item — represents a single CollimatorStage.
 
-Contains child LayerItems and ApertureItem. Manages resize handles.
+Contains a single material LayerItem and ApertureItem. Manages resize handles.
 Coordinate system: item's local (0,0) = top-left of stage rect.
+Each stage is independently draggable with snap-to-edge behavior.
 
 Reference: Phase-03 spec — Scene Hierarchy, FR-1.3.
 """
@@ -22,8 +23,10 @@ class StageItem(QGraphicsItem):
     """Visual representation of a CollimatorStage.
 
     The stage body is a rectangle at local (0,0) with width=outer_width
-    and height=outer_height. Child LayerItems fill concentrically.
+    and height=outer_height. A single LayerItem fills the wall area.
     ApertureItem sits at the center.
+
+    Independently draggable — snaps to nearby stage edges via scene callback.
     """
 
     def __init__(
@@ -36,11 +39,16 @@ class StageItem(QGraphicsItem):
         self._width: float = 100.0
         self._height: float = 200.0
         self._selected: bool = False
-        self._layer_items: list[LayerItem] = []
+        self._material_item: LayerItem | None = None
         self._aperture_item: ApertureItem | None = None
         self._handles: list[ResizeHandle] = []
         self._handle_callback = None  # set by scene
+        self._locked: bool = False
+        self._x_locked: bool = True  # X-axis locked by default
+        self._dragging: bool = False
 
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
 
     @property
@@ -51,9 +59,32 @@ class StageItem(QGraphicsItem):
     def stage_index(self, value: int) -> None:
         self._stage_index = value
 
+    @property
+    def width(self) -> float:
+        return self._width
+
+    @property
+    def height(self) -> float:
+        return self._height
+
     def set_handle_callback(self, callback) -> None:
         """Set callback for resize handle drags: fn(stage_idx, pos, dx, dy)."""
         self._handle_callback = callback
+
+    @property
+    def locked(self) -> bool:
+        return self._locked
+
+    def set_locked(self, locked: bool) -> None:
+        self._locked = locked
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not locked)
+
+    @property
+    def x_locked(self) -> bool:
+        return self._x_locked
+
+    def set_x_locked(self, locked: bool) -> None:
+        self._x_locked = locked
 
     def set_selected(self, selected: bool) -> None:
         self._selected = selected
@@ -64,7 +95,7 @@ class StageItem(QGraphicsItem):
         self,
         width: float,
         height: float,
-        layers: list[tuple[str, float, str | None, float]],
+        material_id: str,
         aperture_config,
         collimator_type,
     ) -> None:
@@ -73,8 +104,7 @@ class StageItem(QGraphicsItem):
         Args:
             width: Stage outer width [mm].
             height: Stage outer height [mm].
-            layers: List of (material_id, thickness_mm, inner_material_id,
-                    inner_width) from inner to outer.
+            material_id: Shielding material identifier.
             aperture_config: ApertureConfig for this stage.
             collimator_type: CollimatorType enum.
         """
@@ -82,56 +112,29 @@ class StageItem(QGraphicsItem):
         self._width = width
         self._height = height
 
-        # Remove old children
-        for item in self._layer_items:
-            if item.scene():
-                item.scene().removeItem(item)
-        self._layer_items.clear()
+        # Remove old material item
+        if self._material_item and self._material_item.scene():
+            self._material_item.scene().removeItem(self._material_item)
+        self._material_item = None
 
         if self._aperture_item and self._aperture_item.scene():
             self._aperture_item.scene().removeItem(self._aperture_item)
         self._aperture_item = None
 
-        # Build layer rects concentrically (outermost first)
-        total_thickness = sum(t for _, t, *_ in layers)
-        accumulated = 0.0
+        # Solid material fill: entire stage rect (no inner void)
+        if material_id:
+            outer_rect = QRectF(0, 0, width, height)
+            if outer_rect.width() > 0 and outer_rect.height() > 0:
+                self._material_item = LayerItem(
+                    self._stage_index, material_id, parent=self,
+                )
+                self._material_item.set_geometry(outer_rect, QRectF())
 
-        # Iterate outer to inner (reverse order)
-        for idx, (mat_id, thickness, inner_mat, inner_w) in enumerate(
-            reversed(layers)
-        ):
-            outer_offset = accumulated
-            accumulated += thickness
-            inner_offset = accumulated
-
-            outer_rect = QRectF(
-                outer_offset, outer_offset,
-                width - 2 * outer_offset,
-                height - 2 * outer_offset,
-            )
-            inner_rect = QRectF(
-                inner_offset, inner_offset,
-                width - 2 * inner_offset,
-                height - 2 * inner_offset,
-            )
-
-            # Ensure rects are valid
-            if outer_rect.width() <= 0 or outer_rect.height() <= 0:
-                continue
-
-            layer_idx = len(layers) - 1 - idx  # original order index
-            layer_item = LayerItem(
-                self._stage_index, layer_idx, mat_id, parent=self,
-            )
-            layer_item.set_geometry(outer_rect, inner_rect)
-            layer_item.set_composite(inner_mat, inner_w)
-            self._layer_items.append(layer_item)
-
-        # Aperture
+        # Aperture (drawn on top of material)
         self._aperture_item = ApertureItem(self._stage_index, parent=self)
         self._aperture_item.update_shape(
             aperture_config, collimator_type,
-            width, height, total_thickness,
+            width, height,
         )
 
         # Rebuild handles
@@ -159,6 +162,8 @@ class StageItem(QGraphicsItem):
 
     def _on_handle_moved(self, position: HandlePosition, dx: float, dy: float) -> None:
         """Handle drag -> report to scene via callback."""
+        if self._locked:
+            return
         if self._handle_callback:
             self._handle_callback(self._stage_index, position, dx, dy)
 
@@ -177,22 +182,51 @@ class StageItem(QGraphicsItem):
     ) -> None:
         # Stage outline
         pen_color = QColor(ACCENT) if self._selected else QColor("#78909C")
-        pen_width = 2 if self._selected else 1
-        pen = QPen(pen_color, pen_width)
+        pen = QPen(pen_color, 1)
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(QRectF(0, 0, self._width, self._height))
 
+    # ------------------------------------------------------------------
+    # Qt item change — snap + notification
+    # ------------------------------------------------------------------
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            # Constrain X-axis during user drag only (not programmatic setPos)
+            if self._x_locked and self._dragging:
+                value = QPointF(self.pos().x(), value.y())
+            # Snap to nearby stage edges via scene callback
+            scene = self.scene()
+            if scene and hasattr(scene, '_snap_stage_position'):
+                return scene._snap_stage_position(self, value)
+            return value
+
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            # Notify scene to update beam lines, gaps, dimensions
+            scene = self.scene()
+            if scene and hasattr(scene, '_on_stage_position_changed'):
+                scene._on_stage_position_changed(self)
+
+        return super().itemChange(change, value)
+
+    # ------------------------------------------------------------------
+    # Mouse events
+    # ------------------------------------------------------------------
+
     def mousePressEvent(self, event) -> None:
-        event.accept()
+        self._dragging = True
+        # Emit stage_clicked for selection
         scene = self.scene()
         if scene and hasattr(scene, 'stage_clicked'):
             scene.stage_clicked.emit(self._stage_index)
+        # Let Qt handle drag via ItemIsMovable
+        super().mousePressEvent(event)
 
-    def get_layer_item(self, layer_index: int) -> LayerItem | None:
-        """Find LayerItem by layer index."""
-        for item in self._layer_items:
-            if item.layer_index == layer_index:
-                return item
-        return None
+    def mouseMoveEvent(self, event) -> None:
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._dragging = False
+        super().mouseReleaseEvent(event)

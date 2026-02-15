@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from app.core.i18n import t, TranslationManager
 from app.core.units import cm_to_mm
 from app.models.projection import ProjectionResult
 
@@ -36,6 +37,7 @@ class ProjectionResultsPanel(QWidget):
         self._ax_profile = None
         self._ax_mtf = None
         self._build_ui()
+        TranslationManager.on_language_changed(self.retranslate_ui)
 
     def _build_ui(self) -> None:
         self._main_layout = QVBoxLayout(self)
@@ -44,20 +46,40 @@ class ProjectionResultsPanel(QWidget):
 
         # Placeholder — replaced by matplotlib canvas on first use
         self._placeholder = QLabel(
-            "Projeksiyon icin sag panelden\n"
-            "bir test nesnesi (phantom) ekleyin."
+            t(
+                "phantom.placeholder",
+                "Add a test object (phantom) from\nthe right panel for projection.",
+            )
         )
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet("color: #64748B; font-size: 10pt;")
         self._main_layout.addWidget(self._placeholder, stretch=1)
 
         # Info label
-        self._info_label = QLabel("Hesaplama bekleniyor...")
+        self._info_label = QLabel(t("phantom.waiting", "Waiting for calculation..."))
         self._info_label.setStyleSheet(
             "color: #94A3B8; font-size: 9pt; padding: 4px;"
         )
         self._info_label.setWordWrap(True)
         self._main_layout.addWidget(self._info_label)
+
+    def retranslate_ui(self) -> None:
+        """Update translatable strings after language change."""
+        if self._placeholder is not None:
+            self._placeholder.setText(
+                t(
+                    "phantom.placeholder",
+                    "Add a test object (phantom) from\nthe right panel for projection.",
+                )
+            )
+        # Info label: only update if still in waiting state (no result)
+        if self._canvas is None:
+            self._info_label.setText(t("phantom.waiting", "Waiting for calculation..."))
+
+        # Re-label axes if canvas exists
+        if self._canvas is not None:
+            self._apply_axis_labels()
+            self._canvas.draw()
 
     def _ensure_canvas(self) -> None:
         """Create matplotlib figure + canvas on first use."""
@@ -93,15 +115,24 @@ class ProjectionResultsPanel(QWidget):
             for spine in ax.spines.values():
                 spine.set_color("#475569")
 
-        self._ax_profile.set_xlabel("Pozisyon [mm]", color="#94A3B8", fontsize=9)
-        self._ax_profile.set_ylabel("Siddet", color="#94A3B8", fontsize=9)
-        self._ax_profile.set_title("Detektor Profili", color="#F8FAFC", fontsize=10)
+        self._apply_axis_labels()
+        self._figure.tight_layout()
+
+    def _apply_axis_labels(self) -> None:
+        """Set axis labels and titles using current translation."""
+        self._ax_profile.set_xlabel(
+            t("charts.detector_position", "Detector Position (mm)"),
+            color="#94A3B8", fontsize=9,
+        )
+        self._ax_profile.set_ylabel(
+            t("charts.relative_intensity", "Relative Intensity"),
+            color="#94A3B8", fontsize=9,
+        )
+        self._ax_profile.set_title("Detector Profile", color="#F8FAFC", fontsize=10)
 
         self._ax_mtf.set_xlabel("Frekans [lp/mm]", color="#94A3B8", fontsize=9)
         self._ax_mtf.set_ylabel("MTF", color="#94A3B8", fontsize=9)
-        self._ax_mtf.set_title("MTF Egrisi", color="#F8FAFC", fontsize=10)
-
-        self._figure.tight_layout()
+        self._ax_mtf.set_title("MTF Curve", color="#F8FAFC", fontsize=10)
 
     def update_result(self, result: ProjectionResult) -> None:
         """Update charts and info from a projection result."""
@@ -118,7 +149,7 @@ class ProjectionResultsPanel(QWidget):
             self._ax_mtf.cla()
             self._setup_axes()
             self._canvas.draw()
-        self._info_label.setText("Hesaplama bekleniyor...")
+        self._info_label.setText(t("phantom.waiting", "Waiting for calculation..."))
 
     def _plot_profile(self, result: ProjectionResult) -> None:
         """Plot detector intensity profile."""
@@ -137,9 +168,15 @@ class ProjectionResultsPanel(QWidget):
             ax.plot(prof.positions_mm, prof.intensities, color="#3B82F6", linewidth=1)
             ax.set_ylim(-0.05, 1.15)
 
-        ax.set_xlabel("Pozisyon [mm]", color="#94A3B8", fontsize=9)
-        ax.set_ylabel("Siddet", color="#94A3B8", fontsize=9)
-        ax.set_title("Detektor Profili", color="#F8FAFC", fontsize=10)
+        ax.set_xlabel(
+            t("charts.detector_position", "Detector Position (mm)"),
+            color="#94A3B8", fontsize=9,
+        )
+        ax.set_ylabel(
+            t("charts.relative_intensity", "Relative Intensity"),
+            color="#94A3B8", fontsize=9,
+        )
+        ax.set_title("Detector Profile", color="#F8FAFC", fontsize=10)
 
     def _plot_mtf(self, result: ProjectionResult) -> None:
         """Plot MTF curve."""
@@ -171,7 +208,7 @@ class ProjectionResultsPanel(QWidget):
 
         ax.set_xlabel("Frekans [lp/mm]", color="#94A3B8", fontsize=9)
         ax.set_ylabel("MTF", color="#94A3B8", fontsize=9)
-        ax.set_title("MTF Egrisi", color="#F8FAFC", fontsize=10)
+        ax.set_title("MTF Curve", color="#F8FAFC", fontsize=10)
 
         self._figure.tight_layout()
 
@@ -189,7 +226,7 @@ class ProjectionResultsPanel(QWidget):
             f"ODD: {odd_mm:.1f} mm",
             f"M: {geo.magnification:.3f}",
             f"Ug: {ug_mm:.3f} mm",
-            f"Kontrast: {prof.contrast:.4f}",
+            f"Contrast: {prof.contrast:.4f}",
         ]
 
         if result.mtf is not None:

@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 import sys
 
 from app.models.geometry import (
-    CollimatorType, FocalSpotDistribution, LayerPurpose, StagePurpose,
+    CollimatorType, FocalSpotDistribution, StagePurpose,
     ApertureConfig,
 )
 from app.ui.canvas.geometry_controller import GeometryController
@@ -31,9 +31,6 @@ class TestControllerDefaults:
 
     def test_default_active_stage_is_0(self):
         assert self.ctrl.active_stage_index == 0
-
-    def test_default_active_layer_is_negative(self):
-        assert self.ctrl.active_layer_index == -1
 
     def test_default_has_stages(self):
         assert self.ctrl.geometry.stage_count >= 1
@@ -163,13 +160,29 @@ class TestStageMutations:
         self.ctrl.set_stage_purpose(0, StagePurpose.FILTER)
         assert self.ctrl.geometry.stages[0].purpose == StagePurpose.FILTER
 
-    def test_set_stage_gap_after(self):
-        self.ctrl.set_stage_gap_after(0, 50.0)
-        assert self.ctrl.geometry.stages[0].gap_after == 50.0
+    def test_set_stage_y_position(self):
+        spy = MagicMock()
+        self.ctrl.stage_changed.connect(spy)
+        self.ctrl.set_stage_y_position(0, 75.0)
+        assert self.ctrl.geometry.stages[0].y_position == 75.0
+        spy.assert_called_once_with(0)
 
-    def test_set_stage_gap_clamps_negative(self):
-        self.ctrl.set_stage_gap_after(0, -10.0)
-        assert self.ctrl.geometry.stages[0].gap_after == 0.0
+    def test_set_stage_x_offset(self):
+        spy = MagicMock()
+        self.ctrl.stage_changed.connect(spy)
+        self.ctrl.set_stage_x_offset(1, 15.0)
+        assert self.ctrl.geometry.stages[1].x_offset == 15.0
+        spy.assert_called_once_with(1)
+
+    def test_set_stage_x_offset_invalid_index_ignored(self):
+        old_x = self.ctrl.geometry.stages[0].x_offset
+        self.ctrl.set_stage_x_offset(99, 10.0)
+        assert self.ctrl.geometry.stages[0].x_offset == old_x
+
+    def test_set_stage_y_position_invalid_index_ignored(self):
+        old_y = self.ctrl.geometry.stages[0].y_position
+        self.ctrl.set_stage_y_position(99, 10.0)
+        assert self.ctrl.geometry.stages[0].y_position == old_y
 
     def test_set_stage_aperture(self):
         new_aperture = ApertureConfig(fan_angle=45.0, fan_slit_width=5.0)
@@ -182,71 +195,76 @@ class TestStageMutations:
         assert orders == list(range(len(self.ctrl.geometry.stages)))
 
 
-class TestLayerMutations:
-    """Layer add / remove / edit within a stage."""
+class TestStageMaterial:
+    """Stage material and wall thickness mutations."""
 
     def setup_method(self):
         self.ctrl = GeometryController()
-        # Load fan-beam so stage 0 has 2 layers (Pb + SS304)
         self.ctrl.load_template(CollimatorType.FAN_BEAM)
 
-    def test_add_layer(self):
-        before = len(self.ctrl.geometry.stages[0].layers)
-        self.ctrl.add_layer(0)
-        assert len(self.ctrl.geometry.stages[0].layers) == before + 1
+    def test_set_stage_material(self):
+        self.ctrl.set_stage_material(0, "W")
+        assert self.ctrl.geometry.stages[0].material_id == "W"
 
-    def test_add_layer_emits_signal(self):
+    def test_set_stage_material_emits_signal(self):
         spy = MagicMock()
-        self.ctrl.layer_added.connect(spy)
-        self.ctrl.add_layer(0)
-        spy.assert_called_once()
+        self.ctrl.stage_changed.connect(spy)
+        self.ctrl.set_stage_material(0, "W")
+        spy.assert_called_once_with(0)
 
-    def test_remove_layer(self):
-        before = len(self.ctrl.geometry.stages[0].layers)
-        self.ctrl.remove_layer(0, 0)
-        assert len(self.ctrl.geometry.stages[0].layers) == before - 1
+    def test_set_stage_material_invalid_rejected(self):
+        old = self.ctrl.geometry.stages[0].material_id
+        self.ctrl.set_stage_material(0, "Unobtanium")
+        assert self.ctrl.geometry.stages[0].material_id == old
 
-    def test_remove_layer_emits_signal(self):
+    def test_set_stage_material_invalid_index_ignored(self):
+        old = self.ctrl.geometry.stages[0].material_id
+        self.ctrl.set_stage_material(99, "W")
+        assert self.ctrl.geometry.stages[0].material_id == old
+
+    def test_set_stage_material_different_stages(self):
+        self.ctrl.set_stage_material(0, "W")
+        self.ctrl.set_stage_material(1, "Cu")
+        assert self.ctrl.geometry.stages[0].material_id == "W"
+        assert self.ctrl.geometry.stages[1].material_id == "Cu"
+
+    def test_set_stage_y_position(self):
+        self.ctrl.set_stage_y_position(0, 50.0)
+        assert self.ctrl.geometry.stages[0].y_position == 50.0
+
+    def test_set_stage_y_position_emits_signal(self):
         spy = MagicMock()
-        self.ctrl.layer_removed.connect(spy)
-        self.ctrl.remove_layer(0, 0)
-        spy.assert_called_once_with(0, 0)
+        self.ctrl.stage_changed.connect(spy)
+        self.ctrl.set_stage_y_position(0, 50.0)
+        spy.assert_called_once_with(0)
 
-    def test_set_layer_material(self):
-        self.ctrl.set_layer_material(0, 0, "W")
-        assert self.ctrl.geometry.stages[0].layers[0].material_id == "W"
+    def test_set_stage_y_position_invalid_index_ignored(self):
+        old = self.ctrl.geometry.stages[0].y_position
+        self.ctrl.set_stage_y_position(99, 50.0)
+        assert self.ctrl.geometry.stages[0].y_position == old
 
-    def test_set_layer_material_invalid_rejected(self):
-        old = self.ctrl.geometry.stages[0].layers[0].material_id
-        self.ctrl.set_layer_material(0, 0, "Unobtanium")
-        assert self.ctrl.geometry.stages[0].layers[0].material_id == old
+    def test_set_stage_x_offset(self):
+        self.ctrl.set_stage_x_offset(0, 15.0)
+        assert self.ctrl.geometry.stages[0].x_offset == 15.0
 
-    def test_set_layer_thickness(self):
-        self.ctrl.set_layer_thickness(0, 0, 25.0)
-        assert self.ctrl.geometry.stages[0].layers[0].thickness == 25.0
-
-    def test_set_layer_thickness_zero_rejected(self):
-        old = self.ctrl.geometry.stages[0].layers[0].thickness
-        self.ctrl.set_layer_thickness(0, 0, 0.0)
-        assert self.ctrl.geometry.stages[0].layers[0].thickness == old
-
-    def test_set_layer_purpose(self):
-        self.ctrl.set_layer_purpose(0, 0, LayerPurpose.FILTER)
-        assert self.ctrl.geometry.stages[0].layers[0].purpose == LayerPurpose.FILTER
-
-    def test_select_layer(self):
+    def test_set_stage_x_offset_emits_signal(self):
         spy = MagicMock()
-        self.ctrl.layer_selected.connect(spy)
-        self.ctrl.select_layer(0, 1)
-        assert self.ctrl.active_layer_index == 1
-        spy.assert_called_once_with(0, 1)
+        self.ctrl.stage_changed.connect(spy)
+        self.ctrl.set_stage_x_offset(0, 10.0)
+        spy.assert_called_once_with(0)
 
-    def test_move_layer(self):
-        mat0 = self.ctrl.geometry.stages[0].layers[0].material_id
-        mat1 = self.ctrl.geometry.stages[0].layers[1].material_id
-        self.ctrl.move_layer(0, 0, 1)
-        assert self.ctrl.geometry.stages[0].layers[0].material_id == mat1
-        assert self.ctrl.geometry.stages[0].layers[1].material_id == mat0
+    def test_set_stage_x_offset_invalid_index_ignored(self):
+        old = self.ctrl.geometry.stages[0].x_offset
+        self.ctrl.set_stage_x_offset(99, 10.0)
+        assert self.ctrl.geometry.stages[0].x_offset == old
+
+    def test_update_stage_position_from_canvas(self):
+        spy = MagicMock()
+        self.ctrl.stage_position_changed.connect(spy)
+        self.ctrl.update_stage_position_from_canvas(0, 5.0, 100.0)
+        assert self.ctrl.geometry.stages[0].x_offset == 5.0
+        assert self.ctrl.geometry.stages[0].y_position == 100.0
+        spy.assert_called_once_with(0)
 
 
 class TestSourceDetector:

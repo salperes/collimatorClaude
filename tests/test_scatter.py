@@ -27,11 +27,9 @@ from app.core.scatter_tracer import ScatterTracer
 from app.models.geometry import (
     ApertureConfig,
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
     DetectorConfig,
-    LayerPurpose,
     Point2D,
     SourceConfig,
     StagePurpose,
@@ -76,9 +74,9 @@ def _make_slit_geometry(
 ) -> CollimatorGeometry:
     """Create a simple slit geometry for scatter tests.
 
-    Single stage with one layer of material, slit aperture.
+    Single stage with one material, slit aperture.
     Source at (0, -200), detector at (0, 200).
-    Stage height = 100 mm, outer_width = thickness + slit_width.
+    Stage height = 100 mm, outer_width = 2 * thickness + slit_width.
     """
     return CollimatorGeometry(
         id="scatter-test",
@@ -100,15 +98,8 @@ def _make_slit_geometry(
                     slit_width=slit_width_mm,
                     slit_height=100.0,
                 ),
-                layers=[
-                    CollimatorLayer(
-                        id="l0",
-                        order=0,
-                        material_id=material,
-                        thickness=thickness_mm,
-                        purpose=LayerPurpose.PRIMARY_SHIELDING,
-                    ),
-                ],
+                material_id=material,
+                y_position=-50.0,
             ),
         ],
         detector=DetectorConfig(

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.constants import DEFAULT_NUM_RAYS, MAX_NUM_RAYS, MIN_NUM_RAYS
+from app.core.i18n import t
 from app.models.simulation import ComptonConfig, SimulationConfig
 
 
@@ -25,7 +26,7 @@ class SimulationConfigDialog(QDialog):
         parent=None,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Simulasyon Ayarlari")
+        self.setWindowTitle(t("dialogs.sim_config_title", "Simulation Settings"))
         self.setMinimumWidth(380)
         self._current = current
         self._build_ui()
@@ -36,14 +37,14 @@ class SimulationConfigDialog(QDialog):
         cur = self._current
 
         # General group
-        gen_group = QGroupBox("Genel")
+        gen_group = QGroupBox(t("dialogs.sim_config_general", "General"))
         gen_form = QFormLayout(gen_group)
 
         self._spin_rays = QSpinBox()
         self._spin_rays.setRange(MIN_NUM_RAYS, MAX_NUM_RAYS)
         self._spin_rays.setSingleStep(100)
         self._spin_rays.setValue(cur.num_rays if cur else DEFAULT_NUM_RAYS)
-        gen_form.addRow("Isin Sayisi:", self._spin_rays)
+        gen_form.addRow(t("dialogs.sim_config_rays", "Ray Count:"), self._spin_rays)
 
         self._spin_resolution = QDoubleSpinBox()
         self._spin_resolution.setRange(0.1, 10.0)
@@ -53,21 +54,21 @@ class SimulationConfigDialog(QDialog):
         self._spin_resolution.setValue(
             cur.angular_resolution if cur else 1.0
         )
-        gen_form.addRow("Acisal Cozunurluk:", self._spin_resolution)
+        gen_form.addRow(t("dialogs.sim_config_angular_res", "Angular Resolution:"), self._spin_resolution)
 
-        self._cb_buildup = QCheckBox("Dahil Et")
+        self._cb_buildup = QCheckBox(t("dialogs.sim_config_include", "Include"))
         self._cb_buildup.setChecked(cur.include_buildup if cur else True)
-        gen_form.addRow("Build-up:", self._cb_buildup)
+        gen_form.addRow(t("dialogs.sim_config_buildup", "Build-up:"), self._cb_buildup)
 
         layout.addWidget(gen_group)
 
         # Scatter group
-        scatter_group = QGroupBox("Compton Scatter")
+        scatter_group = QGroupBox(t("dialogs.sim_config_compton", "Compton Scatter"))
         scatter_form = QFormLayout(scatter_group)
 
         cc = cur.compton_config if cur else ComptonConfig()
 
-        self._cb_scatter = QCheckBox("Scatter Dahil Et")
+        self._cb_scatter = QCheckBox(t("dialogs.sim_config_scatter_include", "Include Scatter"))
         self._cb_scatter.setChecked(cur.include_scatter if cur else False)
         self._cb_scatter.toggled.connect(self._on_scatter_toggled)
         scatter_form.addRow(self._cb_scatter)
@@ -75,12 +76,12 @@ class SimulationConfigDialog(QDialog):
         self._spin_scatter_order = QSpinBox()
         self._spin_scatter_order.setRange(1, 5)
         self._spin_scatter_order.setValue(cc.max_scatter_order)
-        scatter_form.addRow("Maks Sacilma Derecesi:", self._spin_scatter_order)
+        scatter_form.addRow(t("dialogs.sim_config_max_scatter", "Max Scatter Order:"), self._spin_scatter_order)
 
         self._spin_scatter_rays = QSpinBox()
         self._spin_scatter_rays.setRange(1, 100)
         self._spin_scatter_rays.setValue(cc.scatter_rays_per_interaction)
-        scatter_form.addRow("Isinlar/Etkilesim:", self._spin_scatter_rays)
+        scatter_form.addRow(t("dialogs.sim_config_rays_per_interaction", "Rays/Interaction:"), self._spin_scatter_rays)
 
         self._spin_min_energy = QDoubleSpinBox()
         self._spin_min_energy.setRange(1.0, 1000.0)
@@ -88,7 +89,7 @@ class SimulationConfigDialog(QDialog):
         self._spin_min_energy.setDecimals(1)
         self._spin_min_energy.setSuffix(" keV")
         self._spin_min_energy.setValue(cc.min_energy_cutoff_keV)
-        scatter_form.addRow("Min Enerji Kesim:", self._spin_min_energy)
+        scatter_form.addRow(t("dialogs.sim_config_min_energy", "Min Energy Cutoff:"), self._spin_min_energy)
 
         layout.addWidget(scatter_group)
 

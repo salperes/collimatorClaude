@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from app.core.i18n import t
 from app.database.design_repository import DesignRepository
 
 
@@ -31,7 +32,7 @@ class NotesDialog(QDialog):
         self._repo = repo
         self._parent_type = parent_type
         self._parent_id = parent_id
-        self.setWindowTitle("Notlar")
+        self.setWindowTitle(t("dialogs.notes_title", "Notes"))
         self.setMinimumSize(450, 400)
         self._build_ui()
         self._load_notes()
@@ -42,11 +43,11 @@ class NotesDialog(QDialog):
         # Input area
         input_layout = QHBoxLayout()
         self._text_edit = QTextEdit()
-        self._text_edit.setPlaceholderText("Yeni not yazin...")
+        self._text_edit.setPlaceholderText(t("dialogs.notes_placeholder", "Write a new note..."))
         self._text_edit.setMaximumHeight(80)
         input_layout.addWidget(self._text_edit)
 
-        self._btn_add = QPushButton("Ekle")
+        self._btn_add = QPushButton(t("dialogs.notes_add", "Add"))
         self._btn_add.setFixedWidth(60)
         self._btn_add.clicked.connect(self._add_note)
         input_layout.addWidget(self._btn_add, alignment=Qt.AlignmentFlag.AlignTop)
@@ -54,7 +55,7 @@ class NotesDialog(QDialog):
         layout.addLayout(input_layout)
 
         # Notes list
-        layout.addWidget(QLabel("Mevcut Notlar:"))
+        layout.addWidget(QLabel(t("dialogs.notes_existing", "Existing Notes:")))
         self._list = QListWidget()
         layout.addWidget(self._list)
 
@@ -87,7 +88,7 @@ class NotesDialog(QDialog):
 
         btn_del = QPushButton("\u2715")
         btn_del.setFixedSize(24, 24)
-        btn_del.setToolTip("Notu sil")
+        btn_del.setToolTip(t("dialogs.notes_delete_tooltip", "Delete note"))
         btn_del.setStyleSheet(
             "QPushButton { color: #EF4444; border: none; font-weight: bold; }"
             "QPushButton:hover { color: #F87171; }"

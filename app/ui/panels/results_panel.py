@@ -15,6 +15,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+import numpy as np
+
+from app.core.i18n import t, TranslationManager
+from app.core.units import Gy_h_to_µSv_h
 from app.models.simulation import MetricStatus, QualityMetrics, SimulationResult
 
 
@@ -38,6 +42,7 @@ class ResultsPanel(QWidget):
         super().__init__(parent)
         self._metric_rows: list[tuple[QLabel, QLabel]] = []
         self._build_ui()
+        TranslationManager.on_language_changed(self.retranslate_ui)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -45,7 +50,7 @@ class ResultsPanel(QWidget):
         layout.setSpacing(4)
 
         # Overall status
-        self._overall_label = QLabel("Simulasyon bekleniyor...")
+        self._overall_label = QLabel(t("results.waiting", "Waiting for simulation..."))
         self._overall_label.setProperty("cssClass", "prop-label")
         self._overall_label.setFixedWidth(300)
         layout.addWidget(self._overall_label)
@@ -62,6 +67,17 @@ class ResultsPanel(QWidget):
         self._summary_label = QLabel("")
         self._summary_label.setProperty("cssClass", "prop-label")
         layout.addWidget(self._summary_label)
+
+    def retranslate_ui(self) -> None:
+        """Update translatable strings after language change.
+
+        Note: dynamic content (metric rows, scatter rows) is rebuilt
+        on next update_result() call — only the static waiting text
+        and summary need refreshing here if no result is displayed.
+        """
+        # If still in waiting state, update the waiting text
+        if not self._metric_rows:
+            self._overall_label.setText(t("results.waiting", "Waiting for simulation..."))
 
     def update_result(self, result: SimulationResult) -> None:
         """Update the score card with simulation results."""
@@ -116,23 +132,72 @@ class ResultsPanel(QWidget):
 
         # Overall status
         if qm.all_pass:
-            self._overall_label.setText("TUMU GEC")
+            self._overall_label.setText(t("results.all_pass", "ALL PASS"))
             self._overall_label.setStyleSheet(
                 "color: #22C55E; font-weight: bold; font-size: 10pt;"
             )
         else:
-            self._overall_label.setText("BAZI METRIKLER BASARISIZ")
+            self._overall_label.setText(t("results.some_fail", "SOME METRICS FAILED"))
             self._overall_label.setStyleSheet(
                 "color: #EF4444; font-weight: bold; font-size: 10pt;"
             )
 
         # Summary
-        bu_text = "build-up ON" if result.include_buildup else "build-up OFF"
-        self._summary_label.setText(
-            f"E={result.energy_keV:.0f} keV | "
-            f"N={result.num_rays} isin | "
-            f"t={result.elapsed_seconds:.2f} s | {bu_text}"
+        bu_text = (
+            t("results.buildup_on", "build-up ON")
+            if result.include_buildup
+            else t("results.buildup_off", "build-up OFF")
         )
+        summary = t(
+            "results.summary_format",
+            "E={energy:.0f} keV | N={rays} rays | t={time:.2f} s | {buildup}",
+        ).format(
+            energy=result.energy_keV,
+            rays=result.num_rays,
+            time=result.elapsed_seconds,
+            buildup=bu_text,
+        )
+        self._summary_label.setText(summary)
+
+        # Dose info rows (only if dose is computed)
+        self._update_dose_info(result)
+
+    def _update_dose_info(self, result: SimulationResult) -> None:
+        """Add dose rate summary rows below quality metrics."""
+        # Remove old dose rows
+        for w in getattr(self, "_dose_widgets", []):
+            w.deleteLater()
+        self._dose_widgets: list[QWidget] = []
+
+        unatt = result.unattenuated_dose_rate_Gy_h
+        if unatt <= 0:
+            return
+
+        max_intensity = float(np.max(result.beam_profile.intensities)) if len(result.beam_profile.intensities) > 0 else 0.0
+        max_dose = max_intensity * unatt
+
+        dose_lines = [
+            (t("results.open_beam", "Open Beam"),
+             f"{unatt:.4g} Gy/h ({Gy_h_to_µSv_h(unatt):.1f} \u00b5Sv/h)"),
+            (t("results.max_beam", "Max Beam"),
+             f"{max_dose:.4g} Gy/h ({Gy_h_to_µSv_h(max_dose):.1f} \u00b5Sv/h)"),
+        ]
+
+        for name, value in dose_lines:
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            dot = QLabel("\u2022")
+            dot.setStyleSheet("color: #3B82F6; font-size: 8pt;")
+            dot.setFixedWidth(14)
+            row.addWidget(dot)
+            lbl = QLabel(f"{name}: {value}")
+            lbl.setStyleSheet("color: #94A3B8; font-size: 9pt;")
+            row.addWidget(lbl)
+            row.addStretch()
+            container = QWidget()
+            container.setLayout(row)
+            self._metrics_layout.addWidget(container)
+            self._dose_widgets.append(container)
 
     def update_layer_breakdown(self, attn_with: object, attn_without: object) -> None:
         """Show per-layer attenuation table with build-up comparison (G-7, G-8).
@@ -147,13 +212,13 @@ class ResultsPanel(QWidget):
         sep.setStyleSheet("color: #475569;")
         self._metrics_layout.addWidget(sep)
 
-        header = QLabel("Katman Bazli Zayiflama")
+        header = QLabel(t("results.stage_breakdown", "Stage Attenuation Breakdown"))
         header.setStyleSheet("color: #60A5FA; font-size: 9pt; font-weight: bold;")
         self._metrics_layout.addWidget(header)
 
         # Column header
         col_hdr = QLabel(
-            "  Malzeme    | kalinlik  |   mu     |   mfp"
+            "  Malzeme    | kalınlık  |   mu     |   mfp"
         )
         col_hdr.setStyleSheet("color: #64748B; font-size: 8pt; font-family: monospace;")
         self._metrics_layout.addWidget(col_hdr)
@@ -201,30 +266,33 @@ class ResultsPanel(QWidget):
         self._metrics_layout.addWidget(sep)
 
         # Scatter header
-        header = QLabel("Scatter (tek sacilma)")
+        header = QLabel(t("results.scatter_header", "Scatter (single scatter)"))
         header.setStyleSheet("color: #FFA726; font-size: 9pt; font-weight: bold;")
         self._metrics_layout.addWidget(header)
 
         # Scatter fraction
         frac_pct = scatter_result.total_scatter_fraction * 100.0
-        self._add_info_row(f"Scatter Orani: {frac_pct:.2f} %")
+        self._add_info_row(f"Scatter Ratio: {frac_pct:.2f} %")
 
         # Mean scattered energy
         if scatter_result.mean_scattered_energy_keV > 0:
             self._add_info_row(
-                f"Ort. Scatter E: {scatter_result.mean_scattered_energy_keV:.1f} keV"
+                f"Mean Scatter E: {scatter_result.mean_scattered_energy_keV:.1f} keV"
             )
 
         # Interaction count
         self._add_info_row(
-            f"Etkilesim: {scatter_result.num_interactions} "
-            f"({scatter_result.num_reaching_detector} detektore)"
+            f"Interactions: {scatter_result.num_interactions} "
+            f"({scatter_result.num_reaching_detector} to detector)"
         )
 
         # Disclaimer
         disclaimer = QLabel(
-            "Basitlestirilmis tek sacilma modeli — "
-            "kesin analiz icin MC dogrulamasi onerilir."
+            t(
+                "results.scatter_disclaimer",
+                "Simplified single-scatter model \u2014 "
+                "MC validation recommended for precise analysis.",
+            )
         )
         disclaimer.setStyleSheet("color: #64748B; font-size: 7pt;")
         disclaimer.setWordWrap(True)
@@ -253,7 +321,7 @@ class ResultsPanel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self._metric_rows.clear()
-        self._overall_label.setText("Simulasyon bekleniyor...")
+        self._overall_label.setText(t("results.waiting", "Waiting for simulation..."))
         self._overall_label.setStyleSheet(
             "color: #94A3B8; font-size: 8pt;"
         )

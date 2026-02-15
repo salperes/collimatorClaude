@@ -8,6 +8,7 @@ Reference: Phase-05 spec — FR-3.3.3.
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 
+from app.core.i18n import t
 from app.core.material_database import MaterialService
 from app.core.physics_engine import PhysicsEngine
 from app.core.units import cm_to_mm
@@ -38,9 +39,9 @@ class HvlChartWidget(QWidget):
         layout.addWidget(self._selector)
 
         self._chart = BaseChart(
-            title="Yari Deger Kalinligi (HVL)",
-            x_label="Enerji [keV]",
-            y_label="HVL [mm]",
+            title=t("charts.hvl_title", "Half-Value Layer (HVL)"),
+            x_label=t("charts.energy_axis", "Energy [keV]"),
+            y_label=t("charts.hvl_axis", "HVL [mm]"),
             log_x=True,
         )
         self._chart.enable_crosshair()

@@ -26,4 +26,5 @@ markers = [
     "benchmark: Benchmark validation tests (BM-X.Y)",
     "integration: Integration tests (run before release)",
     "validation: Cross-validation against xraylib independent reference",
+    "nist_validation: NIST XCOM self-validation (V7 series, no external deps)",
 ]

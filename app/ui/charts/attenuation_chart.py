@@ -9,6 +9,7 @@ Reference: Phase-05 spec — FR-3.3.1, FR-3.3.
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox
 
+from app.core.i18n import t
 from app.core.material_database import MaterialService
 from app.ui.charts.base_chart import BaseChart
 from app.ui.widgets.material_selector import MaterialSelector
@@ -36,18 +37,18 @@ class AttenuationChartWidget(QWidget):
         self._selector.selection_changed.connect(lambda _: self._update_chart())
         top_layout.addWidget(self._selector, stretch=1)
 
-        self._cb_components = QCheckBox("Alt bilesenleri goster")
+        self._cb_components = QCheckBox(t("charts.show_subcomponents", "Show subcomponents"))
         self._cb_components.setToolTip(
-            "Fotoelektrik, Compton, cift uretim bilesenleri"
+            t("charts.subcomponents_tooltip", "Photoelectric, Compton, pair production components")
         )
         self._cb_components.toggled.connect(lambda _: self._update_chart())
         top_layout.addWidget(self._cb_components)
         layout.addLayout(top_layout)
 
         self._chart = BaseChart(
-            title="Kutle Zayiflama Katsayisi (mu/rho)",
-            x_label="Enerji [keV]",
-            y_label="mu/rho [cm2/g]",
+            title=t("charts.mass_attenuation_title", "Mass Attenuation Coefficient (μ/ρ)"),
+            x_label=t("charts.energy_axis", "Energy [keV]"),
+            y_label=t("charts.mu_rho_axis", "μ/ρ [cm²/g]"),
             log_x=True,
             log_y=True,
         )
@@ -72,7 +73,7 @@ class AttenuationChartWidget(QWidget):
                 mu_rho = np.array([d.mass_attenuation for d in data])
                 color = MATERIAL_COLORS.get(mat_id, "#B0BEC5")
                 self._chart.add_curve(
-                    energies, mu_rho, name=f"{mat_id} (toplam)", color=color,
+                    energies, mu_rho, name=f"{mat_id} {t('charts.total_suffix', '(total)')}", color=color,
                 )
 
                 if show_components:
@@ -81,7 +82,7 @@ class AttenuationChartWidget(QWidget):
                     if np.max(pe) > 1e-20:
                         self._chart.add_curve(
                             energies, pe,
-                            name=f"{mat_id} PE", color=color, width=1,
+                            name=f"{mat_id} {t('charts.pe_suffix', 'PE')}", color=color, width=1,
                         )
 
                     # Compton — dotted
@@ -89,7 +90,7 @@ class AttenuationChartWidget(QWidget):
                     if np.max(comp) > 1e-20:
                         self._chart.add_curve(
                             energies, comp,
-                            name=f"{mat_id} Compton", color="#10B981", width=1,
+                            name=f"{mat_id} {t('charts.compton_suffix', 'Compton')}", color="#10B981", width=1,
                         )
 
                     # Pair production — dash-dot
@@ -99,7 +100,7 @@ class AttenuationChartWidget(QWidget):
                         if np.any(pp_valid):
                             self._chart.add_curve(
                                 energies[pp_valid], pp[pp_valid],
-                                name=f"{mat_id} PP", color="#EF4444", width=1,
+                                name=f"{mat_id} {t('charts.pp_suffix', 'PP')}", color="#EF4444", width=1,
                             )
             except (KeyError, ValueError):
                 continue

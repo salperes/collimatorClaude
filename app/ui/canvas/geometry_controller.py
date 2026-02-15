@@ -11,14 +11,13 @@ from datetime import datetime
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from app.constants import MAX_PHANTOMS, MAX_STAGES, MIN_STAGES, MATERIAL_IDS
+from app.core.i18n import t
 from app.models.geometry import (
     ApertureConfig,
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
     FocalSpotDistribution,
-    LayerPurpose,
     Point2D,
     StagePurpose,
 )
@@ -50,14 +49,11 @@ class GeometryController(QObject):
     stage_added = pyqtSignal(int)
     stage_removed = pyqtSignal(int)
     stage_selected = pyqtSignal(int)
-    # Layer within a stage changed (stage_idx, layer_idx)
-    layer_changed = pyqtSignal(int, int)
-    layer_added = pyqtSignal(int, int)
-    layer_removed = pyqtSignal(int, int)
-    layer_selected = pyqtSignal(int, int)
     # Source / detector
     source_changed = pyqtSignal()
     detector_changed = pyqtSignal()
+    # Stage position from canvas drag (lightweight — no full rebuild)
+    stage_position_changed = pyqtSignal(int)
     # Collimator type
     collimator_type_changed = pyqtSignal(object)  # CollimatorType
     # Phantom signals
@@ -70,7 +66,6 @@ class GeometryController(QObject):
         super().__init__(parent)
         self._geometry = create_template(CollimatorType.SLIT)
         self._active_stage_index: int = 0
-        self._active_layer_index: int = -1  # -1 = no selection
         self._active_phantom_index: int = -1  # -1 = no selection
         self._updating: bool = False
 
@@ -92,10 +87,6 @@ class GeometryController(QObject):
         if 0 <= self._active_stage_index < len(self._geometry.stages):
             return self._geometry.stages[self._active_stage_index]
         return None
-
-    @property
-    def active_layer_index(self) -> int:
-        return self._active_layer_index
 
     @property
     def active_phantom_index(self) -> int:
@@ -120,7 +111,6 @@ class GeometryController(QObject):
         try:
             self._geometry = geometry
             self._active_stage_index = 0
-            self._active_layer_index = -1
             self.geometry_changed.emit()
         finally:
             self._updating = False
@@ -140,29 +130,26 @@ class GeometryController(QObject):
     def create_blank_geometry(self) -> None:
         """Create a minimal blank geometry for free-form editing."""
         from app.models.geometry import (
-            CollimatorGeometry, CollimatorStage, CollimatorLayer,
+            CollimatorGeometry, CollimatorStage,
             SourceConfig, DetectorConfig, Point2D,
         )
         geo = CollimatorGeometry(
-            name="Özel Tasarım",
+            name=t("templates.custom_design", "Custom Design"),
             type=CollimatorType.FAN_BEAM,
             stages=[
                 CollimatorStage(
-                    name="Stage 0",
+                    name=t("templates.default_stage", "Stage {index}").format(index=0),
                     order=0,
                     outer_width=100.0,
                     outer_height=100.0,
-                    layers=[
-                        CollimatorLayer(
-                            order=0, material_id="Pb", thickness=20.0,
-                            purpose=LayerPurpose.PRIMARY_SHIELDING,
-                        ),
-                    ],
+                    material_id="Pb",
+                    y_position=100.0,
+                    x_offset=0.0,
                 ),
             ],
-            source=SourceConfig(position=Point2D(0, -150)),
+            source=SourceConfig(position=Point2D(0, 0)),
             detector=DetectorConfig(
-                position=Point2D(0, 350),
+                position=Point2D(0, 500),
                 width=500.0,
                 distance_from_source=500.0,
             ),
@@ -181,22 +168,35 @@ class GeometryController(QObject):
             return
         self._updating = True
         try:
-            new_stage = CollimatorStage(
-                name=f"Stage {len(self._geometry.stages)}",
-                order=len(self._geometry.stages),
-                outer_width=80.0,
-                outer_height=60.0,
-                layers=[
-                    CollimatorLayer(
-                        order=0, material_id="Pb", thickness=10.0,
-                        purpose=LayerPurpose.PRIMARY_SHIELDING,
-                    ),
-                ],
-            )
+            import math
+            # Default: 300mm wide, 10mm deep Pb stage with tapered slit
+            taper = math.degrees(math.atan2(2.0, 10.0))
+
             if after_index < 0 or after_index >= len(self._geometry.stages):
                 insert_idx = len(self._geometry.stages)
             else:
                 insert_idx = after_index + 1
+
+            # Compute Y position below the previous stage
+            if insert_idx > 0:
+                prev = self._geometry.stages[insert_idx - 1]
+                new_y = prev.y_position + prev.outer_height + 10.0
+            else:
+                new_y = 50.0
+
+            new_stage = CollimatorStage(
+                name=t("templates.default_stage", "Stage {index}").format(index=len(self._geometry.stages)),
+                order=len(self._geometry.stages),
+                outer_width=300.0,
+                outer_height=10.0,
+                material_id="Pb",
+                y_position=new_y,
+                x_offset=0.0,
+                aperture=ApertureConfig(
+                    slit_width=6.0,
+                    taper_angle=taper,
+                ),
+            )
             self._geometry.stages.insert(insert_idx, new_stage)
             self._reorder_stages()
             self._touch()
@@ -218,7 +218,6 @@ class GeometryController(QObject):
             self._reorder_stages()
             if self._active_stage_index >= len(self._geometry.stages):
                 self._active_stage_index = len(self._geometry.stages) - 1
-            self._active_layer_index = -1
             self._touch()
             self.stage_removed.emit(index)
         finally:
@@ -296,13 +295,25 @@ class GeometryController(QObject):
         finally:
             self._updating = False
 
-    def set_stage_gap_after(self, index: int, gap: float) -> None:
-        """Update gap after stage [mm]."""
+    def set_stage_y_position(self, index: int, y: float) -> None:
+        """Update stage Y position (top edge relative to source) [mm]."""
         if self._updating or not self._valid_stage(index):
             return
         self._updating = True
         try:
-            self._geometry.stages[index].gap_after = max(0.0, gap)
+            self._geometry.stages[index].y_position = y
+            self._touch()
+            self.stage_changed.emit(index)
+        finally:
+            self._updating = False
+
+    def set_stage_x_offset(self, index: int, x: float) -> None:
+        """Update stage X offset from source axis [mm]."""
+        if self._updating or not self._valid_stage(index):
+            return
+        self._updating = True
+        try:
+            self._geometry.stages[index].x_offset = x
             self._touch()
             self.stage_changed.emit(index)
         finally:
@@ -320,128 +331,38 @@ class GeometryController(QObject):
         finally:
             self._updating = False
 
-    # ------------------------------------------------------------------
-    # Layer mutations
-    # ------------------------------------------------------------------
-
-    def add_layer(self, stage_index: int) -> None:
-        """Add a new default layer to a stage (outermost position)."""
-        if self._updating or not self._valid_stage(stage_index):
-            return
-        self._updating = True
-        try:
-            stage = self._geometry.stages[stage_index]
-            new_order = max((l.order for l in stage.layers), default=-1) + 1
-            layer = CollimatorLayer(
-                order=new_order,
-                material_id="Pb",
-                thickness=10.0,
-                purpose=LayerPurpose.PRIMARY_SHIELDING,
-            )
-            stage.layers.append(layer)
-            layer_idx = len(stage.layers) - 1
-            self._touch()
-            self.layer_added.emit(stage_index, layer_idx)
-        finally:
-            self._updating = False
-
-    def remove_layer(self, stage_index: int, layer_index: int) -> None:
-        """Remove a layer from a stage."""
-        if self._updating or not self._valid_layer(stage_index, layer_index):
-            return
-        self._updating = True
-        try:
-            stage = self._geometry.stages[stage_index]
-            stage.layers.pop(layer_index)
-            # Re-order remaining
-            for i, layer in enumerate(stage.layers):
-                layer.order = i
-            if self._active_layer_index >= len(stage.layers):
-                self._active_layer_index = len(stage.layers) - 1
-            self._touch()
-            self.layer_removed.emit(stage_index, layer_index)
-        finally:
-            self._updating = False
-
-    def move_layer(self, stage_index: int, from_idx: int, to_idx: int) -> None:
-        """Reorder a layer within a stage."""
-        if self._updating or not self._valid_stage(stage_index):
-            return
-        stage = self._geometry.stages[stage_index]
-        n = len(stage.layers)
-        if not (0 <= from_idx < n and 0 <= to_idx < n):
-            return
-        if from_idx == to_idx:
-            return
-        self._updating = True
-        try:
-            layer = stage.layers.pop(from_idx)
-            stage.layers.insert(to_idx, layer)
-            for i, l in enumerate(stage.layers):
-                l.order = i
-            self._touch()
-            self.layer_changed.emit(stage_index, to_idx)
-        finally:
-            self._updating = False
-
-    def set_layer_material(
-        self, stage_index: int, layer_index: int, material_id: str
-    ) -> None:
-        """Update layer material."""
-        if self._updating or not self._valid_layer(stage_index, layer_index):
+    def set_stage_material(self, index: int, material_id: str) -> None:
+        """Update stage shielding material."""
+        if self._updating or not self._valid_stage(index):
             return
         if material_id not in MATERIAL_IDS:
             return
         self._updating = True
         try:
-            self._geometry.stages[stage_index].layers[layer_index].material_id = material_id
+            self._geometry.stages[index].material_id = material_id
             self._touch()
-            self.layer_changed.emit(stage_index, layer_index)
+            self.stage_changed.emit(index)
         finally:
             self._updating = False
 
-    def set_layer_thickness(
-        self, stage_index: int, layer_index: int, thickness: float
+    def update_stage_position_from_canvas(
+        self, index: int, x_offset: float, y_position: float,
     ) -> None:
-        """Update layer thickness [mm]."""
-        if self._updating or not self._valid_layer(stage_index, layer_index):
-            return
-        if thickness <= 0:
+        """Update stage position from canvas drag (lightweight, no rebuild).
+
+        Does NOT emit stage_changed (avoids full visual rebuild).
+        Emits stage_position_changed for panel refresh only.
+        """
+        if self._updating or not self._valid_stage(index):
             return
         self._updating = True
         try:
-            self._geometry.stages[stage_index].layers[layer_index].thickness = thickness
+            self._geometry.stages[index].x_offset = x_offset
+            self._geometry.stages[index].y_position = y_position
             self._touch()
-            self.layer_changed.emit(stage_index, layer_index)
+            self.stage_position_changed.emit(index)
         finally:
             self._updating = False
-
-    def set_layer_purpose(
-        self, stage_index: int, layer_index: int, purpose: LayerPurpose
-    ) -> None:
-        """Update layer purpose."""
-        if self._updating or not self._valid_layer(stage_index, layer_index):
-            return
-        self._updating = True
-        try:
-            self._geometry.stages[stage_index].layers[layer_index].purpose = purpose
-            self._touch()
-            self.layer_changed.emit(stage_index, layer_index)
-        finally:
-            self._updating = False
-
-    def select_layer(self, stage_index: int, layer_index: int) -> None:
-        """Set active layer selection."""
-        if self._updating:
-            return
-        if not self._valid_stage(stage_index):
-            return
-        stage = self._geometry.stages[stage_index]
-        if not (0 <= layer_index < len(stage.layers)):
-            return
-        self._active_stage_index = stage_index
-        self._active_layer_index = layer_index
-        self.layer_selected.emit(stage_index, layer_index)
 
     # ------------------------------------------------------------------
     # Source / Detector mutations
@@ -482,6 +403,77 @@ class GeometryController(QObject):
         self._updating = True
         try:
             self._geometry.source.focal_spot_distribution = dist
+            self._touch()
+            self.source_changed.emit()
+        finally:
+            self._updating = False
+
+    def set_source_beam_angle(self, angle_deg: float) -> None:
+        """Update X-ray beam spread angle [degree, full cone].
+
+        0.0 means auto-calculate from geometry extent.
+        """
+        if self._updating:
+            return
+        if angle_deg < 0 or angle_deg > 180:
+            return
+        self._updating = True
+        try:
+            self._geometry.source.beam_angle = angle_deg
+            self._touch()
+            self.source_changed.emit()
+        finally:
+            self._updating = False
+
+    # ------------------------------------------------------------------
+    # Source dose parameters
+    # ------------------------------------------------------------------
+
+    def set_tube_current(self, mA: float) -> None:
+        """Update X-ray tube current [mA]."""
+        if self._updating:
+            return
+        self._updating = True
+        try:
+            self._geometry.source.tube_current_mA = mA
+            self._touch()
+            self.source_changed.emit()
+        finally:
+            self._updating = False
+
+    def set_tube_output_method(self, method: str) -> None:
+        """Update tube output method ('empirical' or 'lookup')."""
+        if self._updating:
+            return
+        self._updating = True
+        try:
+            self._geometry.source.tube_output_method = method
+            self._touch()
+            self.source_changed.emit()
+        finally:
+            self._updating = False
+
+    def set_linac_pps(self, pps: int) -> None:
+        """Update LINAC pulse repetition rate [PPS]."""
+        if self._updating:
+            return
+        self._updating = True
+        try:
+            self._geometry.source.linac_pps = pps
+            self._touch()
+            self.source_changed.emit()
+        finally:
+            self._updating = False
+
+    def set_linac_dose_rate(self, gy_min: float, ref_pps: int | None = None) -> None:
+        """Update LINAC dose rate [Gy/min] and optionally ref PPS."""
+        if self._updating:
+            return
+        self._updating = True
+        try:
+            self._geometry.source.linac_dose_rate_Gy_min = gy_min
+            if ref_pps is not None:
+                self._geometry.source.linac_ref_pps = ref_pps
             self._touch()
             self.source_changed.emit()
         finally:
@@ -744,68 +736,6 @@ class GeometryController(QObject):
             self._updating = False
 
     # ------------------------------------------------------------------
-    # Composite layer mutations
-    # ------------------------------------------------------------------
-
-    def set_layer_composite(
-        self, stage_idx: int, layer_idx: int, enabled: bool,
-    ) -> None:
-        """Toggle composite mode for a layer.
-
-        When enabled, sets inner_material_id to 'W' and inner_width
-        to half the layer thickness. When disabled, clears both fields.
-        """
-        if self._updating or not self._valid_layer(stage_idx, layer_idx):
-            return
-        self._updating = True
-        try:
-            layer = self._geometry.stages[stage_idx].layers[layer_idx]
-            if enabled:
-                layer.inner_material_id = "W"
-                layer.inner_width = layer.thickness / 2.0
-            else:
-                layer.inner_material_id = None
-                layer.inner_width = 0.0
-            self._touch()
-            self.layer_changed.emit(stage_idx, layer_idx)
-        finally:
-            self._updating = False
-
-    def set_layer_inner_material(
-        self, stage_idx: int, layer_idx: int, material_id: str,
-    ) -> None:
-        """Update composite layer inner zone material."""
-        if self._updating or not self._valid_layer(stage_idx, layer_idx):
-            return
-        if material_id not in MATERIAL_IDS:
-            return
-        self._updating = True
-        try:
-            layer = self._geometry.stages[stage_idx].layers[layer_idx]
-            layer.inner_material_id = material_id
-            self._touch()
-            self.layer_changed.emit(stage_idx, layer_idx)
-        finally:
-            self._updating = False
-
-    def set_layer_inner_width(
-        self, stage_idx: int, layer_idx: int, width_mm: float,
-    ) -> None:
-        """Update composite layer inner zone width [mm]."""
-        if self._updating or not self._valid_layer(stage_idx, layer_idx):
-            return
-        layer = self._geometry.stages[stage_idx].layers[layer_idx]
-        if width_mm <= 0 or width_mm >= layer.thickness:
-            return
-        self._updating = True
-        try:
-            layer.inner_width = width_mm
-            self._touch()
-            self.layer_changed.emit(stage_idx, layer_idx)
-        finally:
-            self._updating = False
-
-    # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
@@ -817,18 +747,14 @@ class GeometryController(QObject):
         geo = self._geometry
         if not geo.stages:
             return geo.detector.position.y / 2.0
-        total_h = geo.total_height
-        last_stage_bottom_y = total_h / 2.0  # centered layout
+        last_stage_bottom_y = max(
+            s.y_position + s.outer_height for s in geo.stages
+        )
         det_y = geo.detector.position.y
         return (last_stage_bottom_y + det_y) / 2.0
 
     def _valid_stage(self, index: int) -> bool:
         return 0 <= index < len(self._geometry.stages)
-
-    def _valid_layer(self, stage_index: int, layer_index: int) -> bool:
-        if not self._valid_stage(stage_index):
-            return False
-        return 0 <= layer_index < len(self._geometry.stages[stage_index].layers)
 
     def _reorder_stages(self) -> None:
         for i, stage in enumerate(self._geometry.stages):

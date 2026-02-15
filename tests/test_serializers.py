@@ -4,6 +4,8 @@ Covers:
   - Geometry round-trip (Enum, nested dataclasses, phantom union)
   - NumPy array preservation in SimulationResult
   - v1.x schema migration (body → stages[0])
+  - v2.x layer migration (layers list → material_id)
+  - v2→v3 position migration (gap_after → y_position)
   - Edge cases: empty phantoms, optional fields, default values
 """
 
@@ -22,12 +24,10 @@ from app.core.serializers import (
 from app.models.geometry import (
     ApertureConfig,
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
     DetectorConfig,
     FocalSpotDistribution,
-    LayerPurpose,
     Point2D,
     SourceConfig,
     StagePurpose,
@@ -73,25 +73,9 @@ def _make_geometry(**kwargs) -> CollimatorGeometry:
                 outer_width=120.0,
                 outer_height=250.0,
                 aperture=ApertureConfig(fan_angle=30.0, fan_slit_width=5.0),
-                layers=[
-                    CollimatorLayer(
-                        id="layer-0",
-                        order=0,
-                        material_id="Pb",
-                        thickness=20.0,
-                        purpose=LayerPurpose.PRIMARY_SHIELDING,
-                    ),
-                    CollimatorLayer(
-                        id="layer-1",
-                        order=1,
-                        material_id="SS304",
-                        thickness=5.0,
-                        purpose=LayerPurpose.STRUCTURAL,
-                        inner_material_id="Cu",
-                        inner_width=2.0,
-                    ),
-                ],
-                gap_after=10.0,
+                material_id="Pb",
+                y_position=25.0,
+                x_offset=0.0,
             ),
         ],
         detector=DetectorConfig(
@@ -168,7 +152,6 @@ class TestGeometrySerialization:
         d = geometry_to_dict(_make_geometry())
         assert d["type"] == "fan_beam"
         assert d["stages"][0]["purpose"] == "primary_shielding"
-        assert d["stages"][0]["layers"][0]["purpose"] == "primary_shielding"
         assert d["source"]["focal_spot_distribution"] == "gaussian"
 
     def test_source_round_trip(self):
@@ -191,7 +174,8 @@ class TestGeometrySerialization:
         assert s.purpose == StagePurpose.PRIMARY_SHIELDING
         assert s.outer_width == 120.0
         assert s.outer_height == 250.0
-        assert s.gap_after == 10.0
+        assert s.y_position == 25.0
+        assert s.x_offset == 0.0
 
     def test_aperture_round_trip(self):
         geo = _make_geometry()
@@ -200,21 +184,11 @@ class TestGeometrySerialization:
         assert a.fan_angle == 30.0
         assert a.fan_slit_width == 5.0
 
-    def test_layer_round_trip(self):
+    def test_material_round_trip(self):
         geo = _make_geometry()
         restored = dict_to_geometry(geometry_to_dict(geo))
-        layers = restored.stages[0].layers
-        assert len(layers) == 2
-        assert layers[0].material_id == "Pb"
-        assert layers[0].thickness == 20.0
-        assert layers[0].purpose == LayerPurpose.PRIMARY_SHIELDING
-
-    def test_composite_layer(self):
-        geo = _make_geometry()
-        restored = dict_to_geometry(geometry_to_dict(geo))
-        layer = restored.stages[0].layers[1]
-        assert layer.inner_material_id == "Cu"
-        assert layer.inner_width == 2.0
+        s = restored.stages[0]
+        assert s.material_id == "Pb"
 
     def test_detector_round_trip(self):
         geo = _make_geometry()
@@ -224,17 +198,24 @@ class TestGeometrySerialization:
 
     def test_multi_stage(self):
         stages = [
-            CollimatorStage(id="s0", order=0, purpose=StagePurpose.PRIMARY_SHIELDING, gap_after=20.0),
-            CollimatorStage(id="s1", order=1, purpose=StagePurpose.FAN_DEFINITION, gap_after=5.0),
-            CollimatorStage(id="s2", order=2, purpose=StagePurpose.PENUMBRA_TRIMMER),
+            CollimatorStage(id="s0", order=0, purpose=StagePurpose.PRIMARY_SHIELDING,
+                            material_id="W", y_position=25.0),
+            CollimatorStage(id="s1", order=1, purpose=StagePurpose.FAN_DEFINITION,
+                            material_id="Pb", y_position=155.0),
+            CollimatorStage(id="s2", order=2, purpose=StagePurpose.PENUMBRA_TRIMMER,
+                            material_id="Cu", y_position=235.0),
         ]
         geo = _make_geometry(stages=stages)
         restored = dict_to_geometry(geometry_to_dict(geo))
 
         assert len(restored.stages) == 3
         assert restored.stages[0].purpose == StagePurpose.PRIMARY_SHIELDING
+        assert restored.stages[0].material_id == "W"
+        assert restored.stages[0].y_position == 25.0
         assert restored.stages[1].purpose == StagePurpose.FAN_DEFINITION
+        assert restored.stages[1].material_id == "Pb"
         assert restored.stages[2].purpose == StagePurpose.PENUMBRA_TRIMMER
+        assert restored.stages[2].material_id == "Cu"
 
     def test_empty_geometry(self):
         geo = CollimatorGeometry()
@@ -266,7 +247,7 @@ class TestV1Migration:
                 "name": "Main",
                 "outer_width": 100.0,
                 "outer_height": 200.0,
-                "layers": [],
+                "material_id": "Pb",
             },
             "detector": {},
         }
@@ -274,6 +255,7 @@ class TestV1Migration:
         assert len(geo.stages) == 1
         assert geo.stages[0].id == "body-0"
         assert geo.stages[0].outer_width == 100.0
+        assert geo.stages[0].material_id == "Pb"
 
     def test_v1_with_stages_ignored(self):
         """If both body and stages exist, stages wins."""
@@ -284,6 +266,169 @@ class TestV1Migration:
         }
         geo = dict_to_geometry(v1_data)
         assert geo.stages[0].id == "s0"
+
+
+# ── v2.x Layer Migration ─────────────────────────────────────────────
+
+class TestLayerMigration:
+    """v2.x layer migration: layers list → material_id."""
+
+    def test_single_layer_migrated(self):
+        """Old single-layer stage migrates material_id."""
+        data = {
+            "type": "fan_beam",
+            "stages": [{
+                "id": "stage-old",
+                "purpose": "primary_shielding",
+                "outer_width": 120.0,
+                "outer_height": 250.0,
+                "layers": [
+                    {
+                        "id": "layer-0",
+                        "order": 0,
+                        "material_id": "W",
+                        "thickness": 15.0,
+                        "purpose": "primary_shielding",
+                    },
+                ],
+            }],
+            "source": {"position": {"x": 0, "y": 0}},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        s = geo.stages[0]
+        assert s.material_id == "W"
+
+    def test_multi_layer_takes_first_material(self):
+        """Old multi-layer stage takes first material."""
+        data = {
+            "type": "fan_beam",
+            "stages": [{
+                "id": "stage-old",
+                "layers": [
+                    {"material_id": "Pb", "thickness": 20.0},
+                    {"material_id": "SS304", "thickness": 5.0},
+                    {"material_id": "Cu", "thickness": 3.0},
+                ],
+            }],
+            "source": {"position": {"x": 0, "y": 0}},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        s = geo.stages[0]
+        assert s.material_id == "Pb"
+
+    def test_empty_layers_uses_defaults(self):
+        """Old stage with empty layers list falls back to defaults."""
+        data = {
+            "type": "fan_beam",
+            "stages": [{
+                "id": "stage-old",
+                "layers": [],
+            }],
+            "source": {},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        s = geo.stages[0]
+        assert s.material_id == "Pb"  # default
+
+    def test_new_format_not_affected_by_migration(self):
+        """Stage with material_id set directly is not overwritten by layers key."""
+        data = {
+            "type": "fan_beam",
+            "stages": [{
+                "id": "stage-new",
+                "material_id": "W",
+                "y_position": 50.0,
+                "layers": [
+                    {"material_id": "Pb", "thickness": 10.0},
+                ],
+            }],
+            "source": {},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        s = geo.stages[0]
+        # material_id is already set, so layers migration should NOT overwrite
+        assert s.material_id == "W"
+        assert s.y_position == 50.0
+
+    def test_v1_body_with_layers_migrated(self):
+        """v1 body key + old layers format: both migrations apply."""
+        data = {
+            "id": "v1-with-layers",
+            "type": "fan_beam",
+            "source": {"position": {"x": 0, "y": 0}},
+            "body": {
+                "id": "body-0",
+                "outer_width": 100.0,
+                "outer_height": 200.0,
+                "layers": [
+                    {"material_id": "W", "thickness": 10.0},
+                    {"material_id": "Pb", "thickness": 15.0},
+                ],
+            },
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        assert len(geo.stages) == 1
+        assert geo.stages[0].material_id == "W"
+
+
+# ── v2→v3 Position Migration ─────────────────────────────────────────
+
+class TestPositionMigration:
+    """v2→v3 migration: gap_after + source_to_assembly_distance → y_position."""
+
+    def test_single_stage_with_assembly_distance(self):
+        """source_to_assembly_distance maps to first stage y_position."""
+        data = {
+            "type": "slit",
+            "source_to_assembly_distance": 150.0,
+            "stages": [{
+                "id": "s0",
+                "outer_height": 50.0,
+            }],
+            "source": {"position": {"x": 0, "y": 0}},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        assert geo.stages[0].y_position == pytest.approx(150.0, abs=0.1)
+
+    def test_multi_stage_gap_migration(self):
+        """Multiple stages with gap_after compute correct y_positions."""
+        data = {
+            "type": "fan_beam",
+            "source_to_assembly_distance": 25.0,
+            "stages": [
+                {"id": "s0", "outer_height": 100.0, "gap_after": 30.0},
+                {"id": "s1", "outer_height": 60.0, "gap_after": 20.0},
+                {"id": "s2", "outer_height": 40.0},
+            ],
+            "source": {"position": {"x": 0, "y": 0}},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        # y0 = 25.0, y1 = 25+100+30 = 155, y2 = 155+60+20 = 235
+        assert geo.stages[0].y_position == pytest.approx(25.0, abs=0.1)
+        assert geo.stages[1].y_position == pytest.approx(155.0, abs=0.1)
+        assert geo.stages[2].y_position == pytest.approx(235.0, abs=0.1)
+
+    def test_explicit_y_position_not_overwritten(self):
+        """If stages already have y_position, migration does not apply."""
+        data = {
+            "type": "fan_beam",
+            "stages": [
+                {"id": "s0", "y_position": 50.0, "outer_height": 100.0},
+                {"id": "s1", "y_position": 200.0, "outer_height": 60.0},
+            ],
+            "source": {},
+            "detector": {},
+        }
+        geo = dict_to_geometry(data)
+        assert geo.stages[0].y_position == 50.0
+        assert geo.stages[1].y_position == 200.0
 
 
 # ── Phantom serialization ────────────────────────────────────────────

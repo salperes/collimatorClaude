@@ -31,6 +31,9 @@ class SourceItem(QGraphicsItem):
         self._focal_spot_size: float = 1.0  # mm
         self._distribution = FocalSpotDistribution.UNIFORM
         self._on_moved: callable | None = None
+        self._locked: bool = False
+        self._x_locked: bool = True
+        self._dragging: bool = False
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True
@@ -50,6 +53,25 @@ class SourceItem(QGraphicsItem):
     def set_move_callback(self, callback: callable) -> None:
         """Set callback for position changes from canvas drag."""
         self._on_moved = callback
+
+    @property
+    def locked(self) -> bool:
+        return self._locked
+
+    def set_locked(self, locked: bool) -> None:
+        self._locked = locked
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not locked)
+        self.setCursor(
+            Qt.CursorShape.ForbiddenCursor if locked
+            else Qt.CursorShape.SizeVerCursor
+        )
+
+    @property
+    def x_locked(self) -> bool:
+        return self._x_locked
+
+    def set_x_locked(self, locked: bool) -> None:
+        self._x_locked = locked
 
     def boundingRect(self) -> QRectF:
         s = ICON_SIZE
@@ -114,10 +136,18 @@ class SourceItem(QGraphicsItem):
             f"Kaynak ({self._focal_spot_size:.1f}mm {dist_tag})",
         )
 
+    def mousePressEvent(self, event) -> None:
+        self._dragging = True
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._dragging = False
+        super().mouseReleaseEvent(event)
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-            # Constrain to X=0 (vertical movement only)
-            return QPointF(self.pos().x(), value.y())
+            if self._x_locked and self._dragging:
+                return QPointF(self.pos().x(), value.y())
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             if self._on_moved:
                 self._on_moved(value.x(), value.y())

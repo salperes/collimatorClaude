@@ -18,12 +18,10 @@ from app.constants import GEOMETRY_SCHEMA_VERSION
 from app.models.geometry import (
     ApertureConfig,
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
     DetectorConfig,
     FocalSpotDistribution,
-    LayerPurpose,
     Point2D,
     SourceConfig,
     StagePurpose,
@@ -109,7 +107,8 @@ def geometry_to_dict(geometry: CollimatorGeometry) -> dict:
 def dict_to_geometry(data: dict) -> CollimatorGeometry:
     """Deserialize dict to CollimatorGeometry.
 
-    Handles v1.x migration (``body`` → ``stages[0]``).
+    Handles v1.x migration (``body`` → ``stages[0]``) and v2.x migration
+    (``source_to_assembly_distance`` + ``gap_after`` → explicit ``y_position``).
 
     Args:
         data: JSON-parsed dict.
@@ -118,11 +117,20 @@ def dict_to_geometry(data: dict) -> CollimatorGeometry:
         Reconstructed CollimatorGeometry.
     """
     data = dict(data)  # shallow copy
-    data.pop("schema_version", None)
+    schema_version = data.pop("schema_version", "1.0")
 
     # v1.x migration
     if "body" in data and "stages" not in data:
         data["stages"] = [data.pop("body")]
+
+    source = _dict_to_source(data.get("source", {}))
+    raw_stages = data.get("stages", [])
+    stages = [_dict_to_stage(s) for s in raw_stages]
+    detector = _dict_to_detector(data.get("detector", {}))
+
+    # v2.x → v3.0 migration: compute y_position from gaps
+    if not _has_explicit_positions(raw_stages):
+        _migrate_positions(stages, raw_stages, data, source)
 
     return CollimatorGeometry(
         id=data.get("id", ""),
@@ -130,11 +138,45 @@ def dict_to_geometry(data: dict) -> CollimatorGeometry:
         type=CollimatorType(data["type"]) if "type" in data else CollimatorType.FAN_BEAM,
         created_at=data.get("created_at", ""),
         updated_at=data.get("updated_at", ""),
-        source=_dict_to_source(data.get("source", {})),
-        stages=[_dict_to_stage(s) for s in data.get("stages", [])],
-        detector=_dict_to_detector(data.get("detector", {})),
+        source=source,
+        stages=stages,
+        detector=detector,
         phantoms=[_dict_to_phantom(p) for p in data.get("phantoms", [])],
     )
+
+
+def _has_explicit_positions(raw_stages: list[dict]) -> bool:
+    """Check if stages already have explicit y_position (v3.0+ format)."""
+    return any("y_position" in s for s in raw_stages)
+
+
+def _migrate_positions(
+    stages: list[CollimatorStage],
+    raw_stages: list[dict],
+    data: dict,
+    source: SourceConfig,
+) -> None:
+    """Compute y_position from old gap_after + source_to_assembly_distance."""
+    src_to_asm = data.get("source_to_assembly_distance")
+
+    if src_to_asm is not None:
+        y_offset = source.position.y + src_to_asm
+    else:
+        # Legacy: assembly centered at Y=0
+        total_h = sum(s.outer_height for s in stages)
+        total_gaps = sum(
+            raw_stages[i].get("gap_after", 0.0)
+            for i in range(len(raw_stages) - 1)
+        ) if len(raw_stages) > 1 else 0.0
+        y_offset = -(total_h + total_gaps) / 2.0
+        source.position = Point2D(source.position.x, 0.0)
+
+    for i, stage in enumerate(stages):
+        stage.y_position = y_offset
+        stage.x_offset = 0.0
+        y_offset += stage.outer_height
+        if i < len(raw_stages) - 1:
+            y_offset += raw_stages[i].get("gap_after", 0.0)
 
 
 def _dict_to_source(d: dict) -> SourceConfig:
@@ -148,6 +190,12 @@ def _dict_to_source(d: dict) -> SourceConfig:
         focal_spot_distribution=FocalSpotDistribution(
             d["focal_spot_distribution"]
         ) if "focal_spot_distribution" in d else FocalSpotDistribution.UNIFORM,
+        beam_angle=d.get("beam_angle", 0.0),
+        tube_current_mA=d.get("tube_current_mA", 8.0),
+        tube_output_method=d.get("tube_output_method", "empirical"),
+        linac_pps=d.get("linac_pps", 260),
+        linac_dose_rate_Gy_min=d.get("linac_dose_rate_Gy_min", 0.8),
+        linac_ref_pps=d.get("linac_ref_pps", 260),
     )
 
 
@@ -164,6 +212,15 @@ def _dict_to_detector(d: dict) -> DetectorConfig:
 def _dict_to_stage(d: dict) -> CollimatorStage:
     if not d:
         return CollimatorStage()
+
+    # Migration: old layers list → single material
+    material_id = d.get("material_id", "")
+    if "layers" in d and d["layers"] and not material_id:
+        old_layers = d["layers"]
+        material_id = old_layers[0].get("material_id", "Pb")
+    if not material_id:
+        material_id = "Pb"
+
     return CollimatorStage(
         id=d.get("id", ""),
         name=d.get("name", ""),
@@ -172,8 +229,9 @@ def _dict_to_stage(d: dict) -> CollimatorStage:
         outer_width=d.get("outer_width", 100.0),
         outer_height=d.get("outer_height", 200.0),
         aperture=_dict_to_aperture(d.get("aperture", {})),
-        layers=[_dict_to_layer(l) for l in d.get("layers", [])],
-        gap_after=d.get("gap_after", 0.0),
+        material_id=material_id,
+        y_position=d.get("y_position", 0.0),
+        x_offset=d.get("x_offset", 0.0),
     )
 
 
@@ -187,20 +245,6 @@ def _dict_to_aperture(d: dict) -> ApertureConfig:
         slit_width=d.get("slit_width"),
         slit_height=d.get("slit_height"),
         taper_angle=d.get("taper_angle", 0.0),
-    )
-
-
-def _dict_to_layer(d: dict) -> CollimatorLayer:
-    if not d:
-        return CollimatorLayer()
-    return CollimatorLayer(
-        id=d.get("id", ""),
-        order=d.get("order", 0),
-        material_id=d.get("material_id", ""),
-        thickness=d.get("thickness", 0.0),
-        purpose=LayerPurpose(d["purpose"]) if "purpose" in d else LayerPurpose.PRIMARY_SHIELDING,
-        inner_material_id=d.get("inner_material_id"),
-        inner_width=d.get("inner_width", 0.0),
     )
 
 
@@ -337,4 +381,5 @@ def dict_to_simulation_result(data: dict) -> SimulationResult:
         quality_metrics=quality_metrics,
         elapsed_seconds=data.get("elapsed_seconds", 0.0),
         include_buildup=data.get("include_buildup", False),
+        unattenuated_dose_rate_Gy_h=data.get("unattenuated_dose_rate_Gy_h", 0.0),
     )

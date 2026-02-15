@@ -127,3 +127,22 @@ def dB_to_transmission(dB: float) -> float:
         Transmission ratio [dimensionless, 0–1].
     """
     return 10.0 ** (-dB / 10.0)
+
+
+# ---------------------------------------------------------------------------
+# Dose rate conversions
+# ---------------------------------------------------------------------------
+
+def Gy_h_to_µSv_h(gy_h: float) -> float:
+    """Gy/h → µSv/h (photon radiation weighting factor wR = 1)."""
+    return gy_h * 1_000_000.0
+
+
+def µSv_h_to_Gy_h(usv_h: float) -> float:
+    """µSv/h → Gy/h."""
+    return usv_h * 1e-6
+
+
+def Gy_min_to_Gy_h(gy_min: float) -> float:
+    """Gy/min → Gy/h."""
+    return gy_min * 60.0

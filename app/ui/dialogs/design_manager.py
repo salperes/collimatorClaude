@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from app.core.i18n import t
 from app.database.design_repository import DesignRepository
 
 
@@ -21,7 +22,7 @@ class DesignManagerDialog(QDialog):
         self._repo = repo
         self.selected_design_id: str | None = None
 
-        self.setWindowTitle("Tasarim Ac")
+        self.setWindowTitle(t("dialogs.open_title", "Open Design"))
         self.setMinimumSize(600, 400)
 
         layout = QVBoxLayout(self)
@@ -30,19 +31,19 @@ class DesignManagerDialog(QDialog):
         filter_layout = QHBoxLayout()
 
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("Ara...")
+        self._search_edit.setPlaceholderText(t("dialogs.open_search", "Search..."))
         self._search_edit.textChanged.connect(self._refresh)
         filter_layout.addWidget(self._search_edit)
 
         self._type_combo = QComboBox()
-        self._type_combo.addItem("Tum Tipler", "")
+        self._type_combo.addItem(t("dialogs.open_all_types", "All Types"), "")
         self._type_combo.addItem("Fan Beam", "fan_beam")
         self._type_combo.addItem("Pencil Beam", "pencil_beam")
         self._type_combo.addItem("Slit", "slit")
         self._type_combo.currentIndexChanged.connect(self._refresh)
         filter_layout.addWidget(self._type_combo)
 
-        self._fav_check = QCheckBox("Favoriler")
+        self._fav_check = QCheckBox(t("dialogs.open_favorites", "Favorites"))
         self._fav_check.toggled.connect(self._refresh)
         filter_layout.addWidget(self._fav_check)
 
@@ -52,7 +53,11 @@ class DesignManagerDialog(QDialog):
         self._table = QTableWidget()
         self._table.setColumnCount(5)
         self._table.setHorizontalHeaderLabels([
-            "Ad", "Tip", "Etiketler", "Guncelleme", "Favori",
+            t("dialogs.open_col_name", "Name"),
+            t("dialogs.open_col_type", "Type"),
+            t("dialogs.open_col_tags", "Tags"),
+            t("dialogs.open_col_updated", "Updated"),
+            t("dialogs.open_col_favorite", "Favorite"),
         ])
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -67,20 +72,20 @@ class DesignManagerDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self._btn_delete = QPushButton("Sil")
+        self._btn_delete = QPushButton(t("dialogs.open_delete", "Delete"))
         self._btn_delete.clicked.connect(self._on_delete)
         btn_layout.addWidget(self._btn_delete)
 
-        self._btn_fav = QPushButton("Favori")
+        self._btn_fav = QPushButton(t("dialogs.open_favorite", "Favorite"))
         self._btn_fav.clicked.connect(self._on_toggle_favorite)
         btn_layout.addWidget(self._btn_fav)
 
-        self._btn_open = QPushButton("Ac")
+        self._btn_open = QPushButton(t("dialogs.open_open", "Open"))
         self._btn_open.setDefault(True)
         self._btn_open.clicked.connect(self._on_open)
         btn_layout.addWidget(self._btn_open)
 
-        self._btn_cancel = QPushButton("Iptal")
+        self._btn_cancel = QPushButton(t("common.cancel", "Cancel"))
         self._btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(self._btn_cancel)
 

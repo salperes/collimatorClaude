@@ -16,7 +16,7 @@ from app.core.material_database import MaterialService
 from app.core.build_up_factors import BuildUpFactors
 from app.core.physics_engine import PhysicsEngine
 from app.core.units import cm_to_mm
-from app.models.geometry import CollimatorLayer
+from app.models.geometry import CollimatorStage
 
 
 @pytest.fixture(scope="module")
@@ -172,12 +172,11 @@ class TestBM3_SteelAttenuation:
 # -----------------------------------------------------------------------
 
 class TestBM4_MultiLayerAttenuation:
-    """BM-4: Multi-layer Beer-Lambert attenuation."""
+    """BM-4: Multi-layer Beer-Lambert attenuation (slab-based)."""
 
     def test_bm4_1_10mm_pb_1000keV(self, engine: PhysicsEngine):
         """BM-4.1: 10mm Pb @ 1000 keV → T = exp(-μ×x)."""
-        layers = [CollimatorLayer(material_id="Pb", thickness=10.0)]
-        result = engine.calculate_attenuation(layers, 1000.0)
+        result = engine.calculate_slab_attenuation("Pb", 10.0, 1000.0)
         # μ = 0.0708 * 11.34 = 0.8029 cm⁻¹, x = 1.0 cm
         # T = exp(-0.8029) ≈ 0.448
         assert result.transmission == pytest.approx(0.448, rel=0.02)
@@ -185,52 +184,40 @@ class TestBM4_MultiLayerAttenuation:
 
     def test_bm4_2_5mm_pb_5mm_w_1000keV(self, engine: PhysicsEngine):
         """BM-4.2: 5mm Pb + 5mm W @ 1000 keV."""
-        layers = [
-            CollimatorLayer(material_id="Pb", thickness=5.0),
-            CollimatorLayer(material_id="W", thickness=5.0),
-        ]
-        result = engine.calculate_attenuation(layers, 1000.0)
+        r_pb = engine.calculate_slab_attenuation("Pb", 5.0, 1000.0)
+        r_w = engine.calculate_slab_attenuation("W", 5.0, 1000.0)
+        combined_t = r_pb.transmission * r_w.transmission
         # Pb: μ=0.0708*11.34=0.8029, x=0.5cm → mfp=0.4015
         # W: μ=0.0596*19.30=1.1503, x=0.5cm → mfp=0.5751
         # total_mfp ≈ 0.977, T = exp(-0.977) ≈ 0.376
-        assert result.transmission == pytest.approx(
+        assert combined_t == pytest.approx(
             math.exp(-0.4015 - 0.5751), rel=0.03
         )
-        assert len(result.layers) == 2
 
     def test_bm4_3_20mm_w_500keV(self, engine: PhysicsEngine):
         """BM-4.3: 20mm W @ 500 keV → very high attenuation."""
-        layers = [CollimatorLayer(material_id="W", thickness=20.0)]
-        result = engine.calculate_attenuation(layers, 500.0)
+        result = engine.calculate_slab_attenuation("W", 20.0, 500.0)
         # μ = 0.1085 * 19.30 = 2.094 cm⁻¹, x = 2.0 cm
         # T = exp(-4.188) ≈ 0.015
         assert result.transmission < 0.02
         assert result.total_mfp > 4.0
 
-    def test_bm4_4_empty_layers(self, engine: PhysicsEngine):
-        """BM-4.4: No layers → T = 1.0 (no attenuation)."""
-        result = engine.calculate_attenuation([], 1000.0)
+    def test_bm4_4_empty_slab(self, engine: PhysicsEngine):
+        """BM-4.4: Zero thickness → T = 1.0 (no attenuation)."""
+        result = engine.calculate_slab_attenuation("Pb", 0.0, 1000.0)
         assert result.transmission == 1.0
-        assert result.attenuation_dB == 0.0
-        assert result.total_mfp == 0.0
 
     def test_bm4_5_100mm_pb_100keV(self, engine: PhysicsEngine):
         """BM-4.5: 100mm Pb @ 100 keV → effectively zero transmission."""
-        layers = [CollimatorLayer(material_id="Pb", thickness=100.0)]
-        result = engine.calculate_attenuation(layers, 100.0)
+        result = engine.calculate_slab_attenuation("Pb", 100.0, 100.0)
         # μ = 5.549 * 11.34 = 62.93 cm⁻¹, x = 10 cm
         # T = exp(-629.3) ≈ 0 (essentially zero)
         assert result.transmission < 1e-20
 
-    def test_zero_thickness_layer_ignored(self, engine: PhysicsEngine):
-        """Layer with zero thickness should not contribute."""
-        layers = [
-            CollimatorLayer(material_id="Pb", thickness=0.0),
-            CollimatorLayer(material_id="W", thickness=10.0),
-        ]
-        result = engine.calculate_attenuation(layers, 1000.0)
-        assert len(result.layers) == 1  # only W counted
-        assert result.layers[0].material_id == "W"
+    def test_zero_thickness_ignored(self, engine: PhysicsEngine):
+        """Slab with zero thickness should return T=1."""
+        result = engine.calculate_slab_attenuation("Pb", 0.0, 1000.0)
+        assert result.transmission == 1.0
 
 
 # -----------------------------------------------------------------------
@@ -239,16 +226,17 @@ class TestBM4_MultiLayerAttenuation:
 
 class TestSweeps:
     def test_energy_sweep_returns_correct_count(self, engine: PhysicsEngine):
-        layers = [CollimatorLayer(material_id="Pb", thickness=10.0)]
-        results = engine.energy_sweep(layers, 100, 1000, 10)
+        # outer_width=20 + slit_width=0 → effective_wall=10mm per side
+        stages = [CollimatorStage(material_id="Pb", outer_width=20.0)]
+        results = engine.energy_sweep(stages, 100, 1000, 10)
         assert len(results) == 10
 
     def test_energy_sweep_transmission_increases_with_energy(
         self, engine: PhysicsEngine
     ):
         """Higher energy → less attenuation → higher transmission (above K-edge)."""
-        layers = [CollimatorLayer(material_id="Pb", thickness=10.0)]
-        results = engine.energy_sweep(layers, 200, 2000, 5)
+        stages = [CollimatorStage(material_id="Pb", outer_width=20.0)]
+        results = engine.energy_sweep(stages, 200, 2000, 5)
         transmissions = [r.transmission for r in results]
         # Generally increasing (above K-edge, μ decreases with energy)
         assert transmissions[-1] > transmissions[0]

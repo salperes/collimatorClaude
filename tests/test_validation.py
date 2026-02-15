@@ -289,14 +289,8 @@ class TestV2PhysicsEngine:
         assert rel_err < tol, f"TVL/HVL={ratio:.6f}, expected={expected:.6f}"
 
     def test_v2_single_layer_beer_lambert(self, physics_engine, material_service):
-        """V2.07 — Single layer: 10mm Pb at 200 keV → T = exp(-μ×x).
-
-        Layer thicknesses in the API are in mm (UI units).
-        """
-        from app.models.geometry import CollimatorLayer
-
-        layer = CollimatorLayer(material_id="Pb", thickness=10.0, purpose="test")
-        result = physics_engine.calculate_attenuation([layer], 200.0, include_buildup=False)
+        """V2.07 — Single slab: 10mm Pb at 200 keV → T = exp(-μ×x)."""
+        result = physics_engine.calculate_slab_attenuation("Pb", 10.0, 200.0)
 
         mu = physics_engine.linear_attenuation("Pb", 200.0)
         thickness_cm = 1.0  # 10 mm = 1 cm
@@ -307,23 +301,19 @@ class TestV2PhysicsEngine:
         _record("V2-BeerLambert-Pb-10mm-200", result.transmission, expected_T, tol * 100, rel_err < tol)
         assert rel_err < tol
 
-    def test_v2_multi_layer_beer_lambert(self, physics_engine):
-        """V2.08 — Multi-layer: 5mm Pb + 5mm W at 200 keV → T = exp(-Σμᵢxᵢ)."""
-        from app.models.geometry import CollimatorLayer
-
-        layers = [
-            CollimatorLayer(material_id="Pb", thickness=5.0, purpose="test"),
-            CollimatorLayer(material_id="W", thickness=5.0, purpose="test"),
-        ]
-        result = physics_engine.calculate_attenuation(layers, 200.0, include_buildup=False)
+    def test_v2_multi_stage_beer_lambert(self, physics_engine):
+        """V2.08 — Multi-slab: 5mm Pb + 5mm W at 200 keV → T = exp(-Σμᵢxᵢ)."""
+        r_pb = physics_engine.calculate_slab_attenuation("Pb", 5.0, 200.0)
+        r_w = physics_engine.calculate_slab_attenuation("W", 5.0, 200.0)
+        combined_T = r_pb.transmission * r_w.transmission
 
         mu_pb = physics_engine.linear_attenuation("Pb", 200.0)
         mu_w = physics_engine.linear_attenuation("W", 200.0)
         expected_T = math.exp(-mu_pb * 0.5 - mu_w * 0.5)  # 5mm each = 0.5cm
 
         tol = 0.001
-        rel_err = abs(result.transmission - expected_T) / expected_T if expected_T > 1e-30 else 0
-        _record("V2-multilayer-PbW-200", result.transmission, expected_T, tol * 100, rel_err < tol)
+        rel_err = abs(combined_T - expected_T) / expected_T if expected_T > 1e-30 else 0
+        _record("V2-multilayer-PbW-200", combined_T, expected_T, tol * 100, rel_err < tol)
         assert rel_err < tol
 
     @pytest.mark.parametrize("mat_id,Z", [("Pb", 82), ("W", 74), ("Al", 13)])
@@ -717,10 +707,7 @@ class TestV6BeamSimulation:
 
     def test_v6_slab_pb_200kev(self, physics_engine):
         """V6.01 — 10mm Pb at 200 keV: T = exp(-μ×x) using our μ."""
-        from app.models.geometry import CollimatorLayer
-
-        layer = CollimatorLayer(material_id="Pb", thickness=10.0, purpose="test")
-        result = physics_engine.calculate_attenuation([layer], 200.0, include_buildup=False)
+        result = physics_engine.calculate_slab_attenuation("Pb", 10.0, 200.0)
 
         mu = physics_engine.linear_attenuation("Pb", 200.0)
         expected = math.exp(-mu * 1.0)  # 10mm = 1cm
@@ -730,31 +717,24 @@ class TestV6BeamSimulation:
         _record("V6-slab-Pb-10mm-200", result.transmission, expected, tol * 100, rel_err < tol)
         assert rel_err < tol
 
-    def test_v6_multi_layer_pb_w(self, physics_engine):
+    def test_v6_multi_stage_pb_w(self, physics_engine):
         """V6.02 — 5mm Pb + 5mm W at 200 keV: T = exp(-Σμᵢxᵢ)."""
-        from app.models.geometry import CollimatorLayer
-
-        layers = [
-            CollimatorLayer(material_id="Pb", thickness=5.0, purpose="test"),
-            CollimatorLayer(material_id="W", thickness=5.0, purpose="test"),
-        ]
-        result = physics_engine.calculate_attenuation(layers, 200.0, include_buildup=False)
+        r_pb = physics_engine.calculate_slab_attenuation("Pb", 5.0, 200.0)
+        r_w = physics_engine.calculate_slab_attenuation("W", 5.0, 200.0)
+        combined_T = r_pb.transmission * r_w.transmission
 
         mu_pb = physics_engine.linear_attenuation("Pb", 200.0)
         mu_w = physics_engine.linear_attenuation("W", 200.0)
         expected = math.exp(-mu_pb * 0.5 - mu_w * 0.5)
 
         tol = 0.001
-        rel_err = abs(result.transmission - expected) / expected if expected > 1e-30 else 0
-        _record("V6-multi-PbW-200", result.transmission, expected, tol * 100, rel_err < tol)
+        rel_err = abs(combined_T - expected) / expected if expected > 1e-30 else 0
+        _record("V6-multi-PbW-200", combined_T, expected, tol * 100, rel_err < tol)
         assert rel_err < tol
 
     def test_v6_thick_slab_near_zero(self, physics_engine):
         """V6.03 — 100mm Pb at 100 keV: T should be extremely small."""
-        from app.models.geometry import CollimatorLayer
-
-        layer = CollimatorLayer(material_id="Pb", thickness=100.0, purpose="test")
-        result = physics_engine.calculate_attenuation([layer], 100.0, include_buildup=False)
+        result = physics_engine.calculate_slab_attenuation("Pb", 100.0, 100.0)
 
         mu = physics_engine.linear_attenuation("Pb", 100.0)
         expected = math.exp(-mu * 10.0)  # 100mm = 10cm
@@ -764,13 +744,10 @@ class TestV6BeamSimulation:
 
     def test_v6_at_hvl_half_transmission(self, physics_engine):
         """V6.04 — At thickness = HVL → T = 0.5."""
-        from app.models.geometry import CollimatorLayer
-
         hvl_result = physics_engine.calculate_hvl_tvl("Pb", 200.0)
-        hvl_mm = hvl_result.hvl_cm * 10.0  # convert cm to mm for layer
+        hvl_mm = hvl_result.hvl_cm * 10.0  # convert cm to mm
 
-        layer = CollimatorLayer(material_id="Pb", thickness=hvl_mm, purpose="test")
-        result = physics_engine.calculate_attenuation([layer], 200.0, include_buildup=False)
+        result = physics_engine.calculate_slab_attenuation("Pb", hvl_mm, 200.0)
 
         tol = 0.001
         rel_err = abs(result.transmission - 0.5) / 0.5
@@ -779,13 +756,10 @@ class TestV6BeamSimulation:
 
     def test_v6_at_tvl_tenth_transmission(self, physics_engine):
         """V6.05 — At thickness = TVL → T = 0.1."""
-        from app.models.geometry import CollimatorLayer
-
         tvl_result = physics_engine.calculate_hvl_tvl("Pb", 200.0)
         tvl_mm = tvl_result.tvl_cm * 10.0  # convert cm to mm
 
-        layer = CollimatorLayer(material_id="Pb", thickness=tvl_mm, purpose="test")
-        result = physics_engine.calculate_attenuation([layer], 200.0, include_buildup=False)
+        result = physics_engine.calculate_slab_attenuation("Pb", tvl_mm, 200.0)
 
         tol = 0.001
         rel_err = abs(result.transmission - 0.1) / 0.1

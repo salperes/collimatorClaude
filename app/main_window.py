@@ -26,11 +26,14 @@ from app.constants import (
 )
 from app.core.beam_simulation import BeamSimulation
 from app.core.build_up_factors import BuildUpFactors
+from app.core.dose_calculator import DoseCalculator
+from app.core.i18n import t, TranslationManager
 from app.core.compton_engine import ComptonEngine
 from app.core.material_database import MaterialService
 from app.core.physics_engine import PhysicsEngine
 from app.core.projection_engine import ProjectionEngine
 from app.core.ray_tracer import RayTracer
+from app.core.units import Gy_h_to_µSv_h
 from app.ui.toolbar import MainToolBar
 from app.ui.canvas.geometry_controller import GeometryController
 from app.ui.canvas.collimator_scene import CollimatorScene
@@ -41,7 +44,7 @@ from app.export.csv_export import CsvExporter
 from app.export.image_export import ImageExporter
 from app.export.json_export import JsonExporter
 from app.export.cdt_export import CdtExporter
-from app.models.simulation import SimulationConfig
+from app.models.simulation import DoseDisplayUnit, SimulationConfig
 from app.ui.charts.attenuation_chart import AttenuationChartWidget
 from app.ui.charts.compton_widget import ComptonWidget
 from app.ui.charts.hvl_chart import HvlChartWidget
@@ -93,6 +96,7 @@ class MainWindow(QMainWindow):
             self._buildup_service,
         )
         self._simulation_worker: SimulationWorker | None = None
+        self._dose_calculator = DoseCalculator()
 
         # Phase 5: Compton engine
         self._compton_engine = ComptonEngine()
@@ -137,7 +141,7 @@ class MainWindow(QMainWindow):
         # Left panel — Materials
         self._material_panel = MaterialPanel()
         self._left_dock = self._create_dock(
-            "Malzemeler",
+            t("panels.materials", "Materials"),
             Qt.DockWidgetArea.LeftDockWidgetArea,
             self._material_panel,
         )
@@ -156,33 +160,33 @@ class MainWindow(QMainWindow):
 
         # Layer section
         self._layer_panel = LayerPanel(self._controller)
-        layer_section = CollapsibleSection("Katmanlar")
-        layer_section.set_content_widget(self._layer_panel)
-        right_layout.addWidget(layer_section)
+        self._layer_section = CollapsibleSection(t("panels.layers", "Layers"))
+        self._layer_section.set_content_widget(self._layer_panel)
+        right_layout.addWidget(self._layer_section)
 
         # Properties section
         self._properties_panel = PropertiesPanel(self._controller)
-        props_section = CollapsibleSection("Parametreler")
-        props_section.set_content_widget(self._properties_panel)
-        right_layout.addWidget(props_section)
+        self._props_section = CollapsibleSection(t("panels.properties", "Properties"))
+        self._props_section.set_content_widget(self._properties_panel)
+        right_layout.addWidget(self._props_section)
 
         # Phantom panel
         self._phantom_panel = PhantomPanel(self._controller)
-        phantom_section = CollapsibleSection("Test Nesneleri")
-        phantom_section.set_content_widget(self._phantom_panel)
-        right_layout.addWidget(phantom_section)
+        self._phantom_section = CollapsibleSection(t("panels.test_objects", "Test Objects"))
+        self._phantom_section.set_content_widget(self._phantom_panel)
+        right_layout.addWidget(self._phantom_section)
 
         # Simulation results section
         self._results_panel = ResultsPanel()
-        results_section = CollapsibleSection("Simulasyon Sonuclari")
-        results_section.set_content_widget(self._results_panel)
-        right_layout.addWidget(results_section)
+        self._results_section = CollapsibleSection(t("panels.simulation_results", "Simulation Results"))
+        self._results_section.set_content_widget(self._results_panel)
+        right_layout.addWidget(self._results_section)
 
         right_layout.addStretch()
         right_scroll.setWidget(right_widget)
 
         self._right_dock = self._create_dock(
-            "Katmanlar / Parametreler",
+            t("panels.layers_properties", "Layers / Properties"),
             Qt.DockWidgetArea.RightDockWidgetArea,
             right_scroll,
         )
@@ -191,15 +195,16 @@ class MainWindow(QMainWindow):
         # Bottom panel — Chart tabs
         self._chart_tabs = self._create_chart_tabs()
         self._bottom_dock = self._create_dock(
-            "Grafikler",
+            t("panels.charts", "Charts"),
             Qt.DockWidgetArea.BottomDockWidgetArea,
             self._chart_tabs,
         )
 
         # LINAC warning label (G-6) — hidden by default
         self._linac_warning = QLabel(
-            "  LINAC modu: Build-up ve cift uretim etkileri "
-            "yuksek enerjide (>1 MeV) basitlestirilmis modelle hesaplanmaktadir.  "
+            "  " + t("status.linac_warning",
+                     "LINAC mode: Build-up and pair production effects are calculated "
+                     "with a simplified model at high energies (>1 MeV).") + "  "
         )
         self._linac_warning.setStyleSheet(
             "background-color: #92400E; color: #FDE68A; "
@@ -209,7 +214,52 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._linac_warning)
 
         # Status bar
-        self.statusBar().showMessage("Hazir")
+        self.statusBar().showMessage(t("status.ready", "Ready"))
+
+        # Register for language changes
+        TranslationManager.on_language_changed(self.retranslate_ui)
+
+    def retranslate_ui(self) -> None:
+        """Update all translatable UI strings on language change."""
+        self._left_dock.setWindowTitle(t("panels.materials", "Materials"))
+        self._right_dock.setWindowTitle(t("panels.layers_properties", "Layers / Properties"))
+        self._bottom_dock.setWindowTitle(t("panels.charts", "Charts"))
+
+        self._layer_section.set_title(t("panels.layers", "Layers"))
+        self._props_section.set_title(t("panels.properties", "Properties"))
+        self._phantom_section.set_title(t("panels.test_objects", "Test Objects"))
+        self._results_section.set_title(t("panels.simulation_results", "Simulation Results"))
+
+        # Chart tab labels
+        self._chart_tabs.setTabText(0, t("charts.projection", "Projection"))
+        self._chart_tabs.setTabText(1, t("charts.beam_profile", "Beam Profile"))
+        self._chart_tabs.setTabText(2, "mu/rho")
+        self._chart_tabs.setTabText(3, "HVL/TVL")
+        self._chart_tabs.setTabText(4, t("charts.transmission", "Transmission vs Thickness"))
+        self._chart_tabs.setTabText(5, t("charts.compton", "Compton"))
+        self._chart_tabs.setTabText(6, t("charts.spr_tab", "SPR Profile"))
+        self._chart_tabs.setTabText(7, t("charts.spectrum", "Spectrum"))
+
+        # LINAC warning
+        self._linac_warning.setText(
+            "  " + t("status.linac_warning",
+                     "LINAC mode: Build-up and pair production effects are calculated "
+                     "with a simplified model at high energies (>1 MeV).") + "  "
+        )
+
+        # Beam profile placeholder
+        if self._beam_profile_placeholder is not None:
+            self._beam_profile_placeholder.setText(
+                t("charts.beam_profile_placeholder", "Click 'Simulate' to start the simulation.")
+            )
+
+        # Beam profile axes (if canvas exists)
+        if self._beam_ax is not None:
+            self._setup_beam_axes()
+            self._beam_figure.tight_layout()
+            self._beam_canvas.draw()
+
+        self.statusBar().showMessage(t("status.ready", "Ready"))
 
     def _connect_signals(self):
         # Toolbar -> controller
@@ -235,7 +285,9 @@ class MainWindow(QMainWindow):
 
         # Zoom display in status bar
         self._view.zoom_changed.connect(
-            lambda z: self.statusBar().showMessage(f"Zoom: {z:.0%}")
+            lambda z: self.statusBar().showMessage(
+                t("status.zoom", "Zoom: {pct}").format(pct=f"{z:.0%}")
+            )
         )
 
         # After type change, fit to new content
@@ -291,6 +343,7 @@ class MainWindow(QMainWindow):
         # Phase 6: File menu signals
         self._toolbar.new_requested.connect(self._on_new)
         self._toolbar.open_requested.connect(self._on_open)
+        self._toolbar.import_external_requested.connect(self._on_import_external)
         self._toolbar.save_requested.connect(self._on_save)
         self._toolbar.save_as_requested.connect(self._on_save_as)
         self._toolbar.export_requested.connect(self._on_export)
@@ -333,11 +386,11 @@ class MainWindow(QMainWindow):
 
         # Projection results panel (first tab for visibility)
         self._projection_panel = ProjectionResultsPanel()
-        tabs.addTab(self._projection_panel, "Projeksiyon")
+        tabs.addTab(self._projection_panel, t("charts.projection", "Projection"))
 
         # Beam profile panel (Phase 4 — populated on simulation)
         self._beam_profile_panel = self._create_beam_profile_panel()
-        tabs.addTab(self._beam_profile_panel, "Isin Profili")
+        tabs.addTab(self._beam_profile_panel, t("charts.beam_profile", "Beam Profile"))
 
         # Phase 5: Interactive chart widgets
         self._attenuation_chart = AttenuationChartWidget(self._material_service)
@@ -351,39 +404,80 @@ class MainWindow(QMainWindow):
         self._transmission_chart = TransmissionChartWidget(
             self._material_service, self._physics_engine,
         )
-        tabs.addTab(self._transmission_chart, "Iletim vs Kalinlik")
+        tabs.addTab(self._transmission_chart, t("charts.transmission", "Transmission vs Thickness"))
 
         self._compton_widget = ComptonWidget(
             self._compton_engine, material_service=self._material_service,
         )
-        tabs.addTab(self._compton_widget, "Compton")
+        tabs.addTab(self._compton_widget, t("charts.compton", "Compton"))
 
         # Phase 7: SPR profile chart
         self._spr_chart = SprChartWidget()
-        tabs.addTab(self._spr_chart, "SPR Profili")
+        tabs.addTab(self._spr_chart, t("charts.spr_tab", "SPR Profile"))
 
         # X-ray tube spectrum chart
         self._spectrum_chart = SpectrumChartWidget(self._material_service)
-        tabs.addTab(self._spectrum_chart, "Spektrum")
+        tabs.addTab(self._spectrum_chart, t("charts.spectrum", "Spectrum"))
 
         return tabs
 
     def _create_beam_profile_panel(self) -> QWidget:
         """Create the beam profile chart panel (lazy matplotlib)."""
+        from PyQt6.QtWidgets import QComboBox, QHBoxLayout
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
 
+        # Dose unit selector row
+        unit_row = QHBoxLayout()
+        unit_row.setContentsMargins(0, 0, 0, 2)
+        unit_label = QLabel(t("charts.y_axis_unit", "Y-Axis:"))
+        unit_label.setStyleSheet("color: #94A3B8; font-size: 8pt;")
+        unit_row.addWidget(unit_label)
+        self._combo_dose_unit = QComboBox()
+        self._combo_dose_unit.setStyleSheet("font-size: 8pt;")
+        self._combo_dose_unit.addItem(
+            "Relative (%)", DoseDisplayUnit.RELATIVE_PCT,
+        )
+        self._combo_dose_unit.addItem(
+            "Gy/h", DoseDisplayUnit.GY_PER_HOUR,
+        )
+        self._combo_dose_unit.addItem(
+            "\u00b5Sv/h", DoseDisplayUnit.MICROSV_PER_HOUR,
+        )
+        self._combo_dose_unit.addItem(
+            "dB", DoseDisplayUnit.DB,
+        )
+        self._combo_dose_unit.currentIndexChanged.connect(
+            self._on_dose_unit_changed,
+        )
+        unit_row.addWidget(self._combo_dose_unit)
+        unit_row.addStretch()
+        layout.addLayout(unit_row)
+
         self._beam_profile_placeholder = QLabel(
-            "Simulasyon baslatmak icin 'Simule Et' butonuna tiklayin."
+            t("charts.beam_profile_placeholder", "Click 'Simulate' to start the simulation.")
         )
         self._beam_profile_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._beam_profile_placeholder.setProperty("cssClass", "secondary")
         layout.addWidget(self._beam_profile_placeholder, stretch=1)
 
+        # Coordinate readout label (below chart)
+        self._beam_coord_label = QLabel("")
+        self._beam_coord_label.setStyleSheet(
+            "color: #94A3B8; font-size: 8pt; font-family: monospace; padding: 2px 4px;"
+        )
+        layout.addWidget(self._beam_coord_label)
+
         self._beam_canvas = None
         self._beam_figure = None
         self._beam_ax = None
+
+        # CTRL+click measurement state
+        self._beam_measure_point = None  # (x, y) of first CTRL+click
+        self._beam_measure_artists = []  # matplotlib artists for cleanup
+
         return widget
 
     def _ensure_beam_canvas(self) -> None:
@@ -400,6 +494,11 @@ class MainWindow(QMainWindow):
         self._setup_beam_axes()
 
         self._beam_canvas = FigureCanvasQTAgg(self._beam_figure)
+        self._beam_canvas.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # Connect mouse events for cursor readout + CTRL measurement
+        self._beam_canvas.mpl_connect("motion_notify_event", self._on_beam_mouse_move)
+        self._beam_canvas.mpl_connect("button_press_event", self._on_beam_mouse_click)
 
         # Replace placeholder
         layout = self._beam_profile_panel.layout()
@@ -412,9 +511,9 @@ class MainWindow(QMainWindow):
         """Configure beam profile plot axes."""
         ax = self._beam_ax
         ax.set_facecolor("#1E293B")
-        ax.set_xlabel("Detektor Pozisyon (mm)", color="#94A3B8", fontsize=10)
-        ax.set_ylabel("Iletim (T)", color="#94A3B8", fontsize=10)
-        ax.set_title("Isin Profili", color="#F8FAFC", fontsize=12)
+        ax.set_xlabel(t("charts.detector_position", "Detector Position (mm)"), color="#94A3B8", fontsize=10)
+        ax.set_ylabel(t("charts.transmission_axis", "Transmission (T)"), color="#94A3B8", fontsize=10)
+        ax.set_title(t("charts.beam_profile", "Beam Profile"), color="#F8FAFC", fontsize=12)
         ax.tick_params(colors="#64748B", labelsize=9)
         for spine in ax.spines.values():
             spine.set_color("#475569")
@@ -481,12 +580,16 @@ class MainWindow(QMainWindow):
         """Handle projection result from worker thread."""
         self._projection_panel.update_result(result)
         self.statusBar().showMessage(
-            f"Projeksiyon tamamlandi — Kontrast: {result.profile.contrast:.4f}"
+            t("status.projection_done", "Projection complete — Contrast: {contrast}").format(
+                contrast=f"{result.profile.contrast:.4f}"
+            )
         )
 
     def _on_projection_error(self, error: str) -> None:
         """Handle projection error from worker thread."""
-        self.statusBar().showMessage(f"Projeksiyon hatasi: {error}")
+        self.statusBar().showMessage(
+            t("status.projection_error", "Projection error: {error}").format(error=error)
+        )
 
     # ------------------------------------------------------------------
     # Simulation (Phase 4)
@@ -509,7 +612,7 @@ class MainWindow(QMainWindow):
         geo = self._controller.geometry
         energy = self._toolbar.get_energy_keV()
 
-        self.statusBar().showMessage("Simulasyon baslatiliyor...")
+        self.statusBar().showMessage(t("status.simulation_starting", "Starting simulation..."))
         self._toolbar._btn_simulate.setEnabled(False)
 
         worker = SimulationWorker(self._beam_sim, self)
@@ -529,89 +632,24 @@ class MainWindow(QMainWindow):
 
     def _on_simulation_progress(self, pct: int) -> None:
         """Update status bar with simulation progress."""
-        self.statusBar().showMessage(f"Simulasyon: %{pct}...")
+        self.statusBar().showMessage(
+            t("status.simulation_progress", "Simulation: {pct}%...").format(pct=pct)
+        )
 
     def _on_simulation_result(self, result) -> None:
         """Handle simulation result from worker thread."""
+        # Compute absolute dose rate at detector
+        geo = self._controller.geometry
+        sdd_mm = geo.detector.distance_from_source
+        result.unattenuated_dose_rate_Gy_h = (
+            self._dose_calculator.calculate_unattenuated_dose(geo.source, sdd_mm)
+        )
+
         # Update score card
         self._results_panel.update_result(result)
 
         # Update beam profile chart
-        self._ensure_beam_canvas()
-        ax = self._beam_ax
-        ax.clear()
-        self._setup_beam_axes()
-
-        profile = result.beam_profile
-        pos = profile.positions_mm
-        ints = profile.intensities
-
-        ax.plot(pos, ints, color="#3B82F6", linewidth=1.5,
-                label="Isin Profili")
-
-        # Region fills using edge detection
-        qm = result.quality_metrics
-        if qm.fwhm_mm > 0 and len(pos) > 2:
-            i_max = float(np.max(ints))
-            if i_max > 1e-12:
-                find = BeamSimulation._find_edges
-
-                # Edge positions
-                half_max = i_max / 2.0
-                fwhm_l, fwhm_r = find(pos, ints, half_max)
-                l20, _ = find(pos, ints, 0.2 * i_max)
-                l80, _ = find(pos, ints, 0.8 * i_max)
-                _, r80 = find(pos, ints, 0.8 * i_max)
-                _, r20 = find(pos, ints, 0.2 * i_max)
-
-                # Useful beam: between FWHM edges (blue)
-                mask_useful = (pos >= fwhm_l) & (pos <= fwhm_r)
-                ax.fill_between(
-                    pos[mask_useful], 0, ints[mask_useful],
-                    alpha=0.12, color="#3B82F6",
-                    label=f"Faydali isin (FWHM={qm.fwhm_mm:.1f}mm)",
-                )
-
-                # Left penumbra: 20%-80% region (yellow)
-                mask_pen_l = (pos >= l20) & (pos <= l80)
-                if np.any(mask_pen_l):
-                    ax.fill_between(
-                        pos[mask_pen_l], 0, ints[mask_pen_l],
-                        alpha=0.15, color="#F59E0B",
-                    )
-                # Right penumbra: 80%-20% region (yellow)
-                mask_pen_r = (pos >= r80) & (pos <= r20)
-                if np.any(mask_pen_r):
-                    ax.fill_between(
-                        pos[mask_pen_r], 0, ints[mask_pen_r],
-                        alpha=0.15, color="#F59E0B",
-                        label=f"Penumbra ({qm.penumbra_max_mm:.1f}mm)",
-                    )
-
-                # Shielded: outside 20% edges (red)
-                mask_shield_l = pos < l20
-                mask_shield_r = pos > r20
-                if np.any(mask_shield_l):
-                    ax.fill_between(
-                        pos[mask_shield_l], 0, ints[mask_shield_l],
-                        alpha=0.08, color="#EF4444",
-                    )
-                if np.any(mask_shield_r):
-                    ax.fill_between(
-                        pos[mask_shield_r], 0, ints[mask_shield_r],
-                        alpha=0.08, color="#EF4444",
-                        label=f"Zirhlama (sizinti {qm.leakage_avg_pct:.2f}%)",
-                    )
-
-                # FWHM horizontal line
-                ax.axhline(y=0.5, color="#F59E0B", linewidth=0.5,
-                           linestyle="--", alpha=0.5)
-
-        ax.legend(fontsize=9, facecolor="#1E293B", edgecolor="#475569",
-                  labelcolor="#F8FAFC")
-        ax.set_ylim(-0.05, 1.1)
-        self._beam_figure.tight_layout()
-        self._beam_canvas.draw()
+        self._replot_beam_profile(result)
 
         # Switch to beam profile tab
         self._chart_tabs.setCurrentIndex(1)
@@ -629,34 +667,276 @@ class MainWindow(QMainWindow):
                 self._current_design_id, config, result,
             )
 
-        # G-7/G-8: Per-layer attenuation table with build-up comparison
+        # G-7/G-8: Per-stage attenuation table with build-up comparison
         geo = self._controller.geometry
-        all_layers = []
-        for stage in geo.stages:
-            all_layers.extend(stage.layers)
-        if all_layers:
+        if geo.stages:
             attn_with = self._physics_engine.calculate_attenuation(
-                all_layers, result.energy_keV, include_buildup=True,
+                geo.stages, result.energy_keV, include_buildup=True,
+                ctype=geo.type,
             )
             attn_without = self._physics_engine.calculate_attenuation(
-                all_layers, result.energy_keV, include_buildup=False,
+                geo.stages, result.energy_keV, include_buildup=False,
+                ctype=geo.type,
             )
             self._results_panel.update_layer_breakdown(attn_with, attn_without)
 
         self.statusBar().showMessage(
-            f"Simulasyon tamamlandi — "
-            f"E={result.energy_keV:.0f}keV | "
-            f"N={result.num_rays} | "
-            f"t={result.elapsed_seconds:.2f}s"
+            t("status.simulation_done", "Simulation complete — E={energy}keV | N={rays} | t={time}s").format(
+                energy=f"{result.energy_keV:.0f}",
+                rays=result.num_rays,
+                time=f"{result.elapsed_seconds:.2f}",
+            )
         )
 
         # Phase 7: Auto-trigger scatter if toggle is checked
         if self._toolbar.scatter_button.isChecked():
             self._run_scatter_simulation(result)
 
+    def _replot_beam_profile(self, result) -> None:
+        """Plot beam profile with current dose display unit."""
+        self._ensure_beam_canvas()
+        ax = self._beam_ax
+        ax.clear()
+        self._setup_beam_axes()
+        # Reset measurement state (artists cleared by ax.clear())
+        self._beam_measure_point = None
+        self._beam_measure_artists.clear()
+        self._beam_coord_label.setText("")
+
+        profile = result.beam_profile
+        pos = profile.positions_mm
+        raw = profile.intensities  # 0-1 transmission
+
+        # Transform Y data based on dose unit selection
+        unit = self._combo_dose_unit.currentData()
+        unatt = result.unattenuated_dose_rate_Gy_h
+
+        match unit:
+            case DoseDisplayUnit.GY_PER_HOUR if unatt > 0:
+                y_data = raw * unatt
+                y_label = t("charts.dose_rate_gy", "Dose Rate (Gy/h)")
+                y_max = None
+                fwhm_ref = float(np.max(y_data)) / 2.0 if len(y_data) > 0 else 0.5
+            case DoseDisplayUnit.MICROSV_PER_HOUR if unatt > 0:
+                y_data = raw * Gy_h_to_µSv_h(unatt)
+                y_label = t("charts.dose_rate_usv", "Dose Rate (\u00b5Sv/h)")
+                y_max = None
+                fwhm_ref = float(np.max(y_data)) / 2.0 if len(y_data) > 0 else 0.5
+            case DoseDisplayUnit.DB:
+                import math as _math
+                y_data = np.where(
+                    raw > 1e-30,
+                    10.0 * np.log10(raw),
+                    -300.0,
+                )
+                y_label = t("charts.attenuation_db", "Attenuation (dB)")
+                y_max = 5.0
+                fwhm_ref = -3.0  # -3 dB = half power
+            case _:
+                y_data = raw * 100.0
+                y_label = t("charts.transmission_pct", "Transmission (%)")
+                y_max = 110.0
+                fwhm_ref = 50.0
+
+        ax.set_ylabel(y_label, color="#94A3B8", fontsize=10)
+
+        ax.plot(pos, y_data, color="#3B82F6", linewidth=1.5,
+                label=t("charts.beam_profile", "Beam Profile"))
+
+        # Region fills using edge detection (skip for dB — edge thresholds are linear)
+        qm = result.quality_metrics
+        if qm.fwhm_mm > 0 and len(pos) > 2 and unit != DoseDisplayUnit.DB:
+            y_max_val = float(np.max(y_data))
+            if y_max_val > 1e-12:
+                find = BeamSimulation._find_edges
+
+                half_max = y_max_val / 2.0
+                fwhm_l, fwhm_r = find(pos, y_data, half_max)
+                l20, _ = find(pos, y_data, 0.2 * y_max_val)
+                l80, _ = find(pos, y_data, 0.8 * y_max_val)
+                _, r80 = find(pos, y_data, 0.8 * y_max_val)
+                _, r20 = find(pos, y_data, 0.2 * y_max_val)
+
+                mask_useful = (pos >= fwhm_l) & (pos <= fwhm_r)
+                ax.fill_between(
+                    pos[mask_useful], 0, y_data[mask_useful],
+                    alpha=0.12, color="#3B82F6",
+                    label=f"{t('charts.useful_beam', 'Useful beam')} (FWHM={qm.fwhm_mm:.1f}mm)",
+                )
+
+                mask_pen_l = (pos >= l20) & (pos <= l80)
+                if np.any(mask_pen_l):
+                    ax.fill_between(
+                        pos[mask_pen_l], 0, y_data[mask_pen_l],
+                        alpha=0.15, color="#F59E0B",
+                    )
+                mask_pen_r = (pos >= r80) & (pos <= r20)
+                if np.any(mask_pen_r):
+                    ax.fill_between(
+                        pos[mask_pen_r], 0, y_data[mask_pen_r],
+                        alpha=0.15, color="#F59E0B",
+                        label=f"{t('charts.penumbra', 'Penumbra')} ({qm.penumbra_max_mm:.1f}mm)",
+                    )
+
+                mask_shield_l = pos < l20
+                mask_shield_r = pos > r20
+                if np.any(mask_shield_l):
+                    ax.fill_between(
+                        pos[mask_shield_l], 0, y_data[mask_shield_l],
+                        alpha=0.08, color="#EF4444",
+                    )
+                if np.any(mask_shield_r):
+                    ax.fill_between(
+                        pos[mask_shield_r], 0, y_data[mask_shield_r],
+                        alpha=0.08, color="#EF4444",
+                        label=f"{t('charts.shielding_leakage', 'Shielding leakage')} ({qm.leakage_avg_pct:.2f}%)",
+                    )
+
+                ax.axhline(y=fwhm_ref, color="#F59E0B", linewidth=0.5,
+                           linestyle="--", alpha=0.5)
+
+        if unit == DoseDisplayUnit.DB and qm.fwhm_mm > 0:
+            # dB mode: show -3 dB reference line + info in legend only
+            ax.axhline(y=-3.0, color="#F59E0B", linewidth=0.7,
+                       linestyle="--", alpha=0.6, label="-3 dB (FWHM)")
+            ax.plot([], [], " ",
+                    label=f"FWHM={qm.fwhm_mm:.1f}mm  |  "
+                          f"{t('charts.shielding_leakage', 'Leakage')}={qm.leakage_avg_pct:.2f}%")
+
+        ax.legend(fontsize=9, facecolor="#1E293B", edgecolor="#475569",
+                  labelcolor="#F8FAFC")
+        if unit == DoseDisplayUnit.DB:
+            # dB: show 0 dB at top, auto-scale bottom to min data
+            y_min_db = float(np.min(y_data[y_data > -300])) if np.any(y_data > -300) else -60.0
+            ax.set_ylim(max(y_min_db * 1.1, -80.0), y_max)
+        elif y_max is not None:
+            ax.set_ylim(-y_max * 0.05, y_max)
+        self._beam_figure.tight_layout()
+        self._beam_canvas.draw()
+
+    def _on_dose_unit_changed(self, idx: int) -> None:
+        """Replot beam profile with new dose display unit."""
+        if self._last_simulation_result is not None and self._beam_ax is not None:
+            self._beam_measure_point = None
+            self._beam_measure_artists.clear()
+            self._replot_beam_profile(self._last_simulation_result)
+            # Re-overlay scatter if present
+            scatter = getattr(self, "_last_scatter_result", None)
+            if scatter is not None:
+                self._overlay_scatter_on_beam_profile(scatter)
+
+    # ------------------------------------------------------------------
+    # Beam profile cursor readout + CTRL measurement
+    # ------------------------------------------------------------------
+
+    def _beam_y_unit_label(self) -> str:
+        """Current Y-axis unit short label for coordinate display."""
+        unit = self._combo_dose_unit.currentData()
+        match unit:
+            case DoseDisplayUnit.GY_PER_HOUR:
+                return "Gy/h"
+            case DoseDisplayUnit.MICROSV_PER_HOUR:
+                return "\u00b5Sv/h"
+            case DoseDisplayUnit.DB:
+                return "dB"
+            case _:
+                return "%"
+
+    def _on_beam_mouse_move(self, event) -> None:
+        """Show cursor X/Y coordinates on beam profile chart."""
+        if event.inaxes != self._beam_ax:
+            self._beam_coord_label.setText("")
+            return
+
+        x, y = event.xdata, event.ydata
+        unit_str = self._beam_y_unit_label()
+        text = f"X: {x:.2f} mm   Y: {y:.4g} {unit_str}"
+
+        # If measurement point exists, also show delta
+        if self._beam_measure_point is not None:
+            x0, y0 = self._beam_measure_point
+            dx = x - x0
+            dy = y - y0
+            text += f"   |   \u0394X: {dx:.2f} mm   \u0394Y: {dy:.4g} {unit_str}"
+
+        self._beam_coord_label.setText(text)
+
+    def _on_beam_mouse_click(self, event) -> None:
+        """CTRL+click to measure delta between two points."""
+        if event.inaxes != self._beam_ax:
+            return
+
+        # Check for CTRL modifier
+        from PyQt6.QtWidgets import QApplication
+        modifiers = QApplication.keyboardModifiers()
+        is_ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+
+        if not is_ctrl:
+            return
+
+        x, y = event.xdata, event.ydata
+
+        # Remove old measurement artists
+        for artist in self._beam_measure_artists:
+            try:
+                artist.remove()
+            except ValueError:
+                pass
+        self._beam_measure_artists.clear()
+
+        if self._beam_measure_point is None:
+            # First CTRL+click — place anchor point
+            self._beam_measure_point = (x, y)
+            marker = self._beam_ax.plot(
+                x, y, "o", color="#22D3EE", markersize=7, zorder=10,
+            )[0]
+            vline = self._beam_ax.axvline(
+                x=x, color="#22D3EE", linewidth=0.7, linestyle=":", alpha=0.6,
+            )
+            hline = self._beam_ax.axhline(
+                y=y, color="#22D3EE", linewidth=0.7, linestyle=":", alpha=0.6,
+            )
+            self._beam_measure_artists.extend([marker, vline, hline])
+            self._beam_canvas.draw_idle()
+        else:
+            # Second CTRL+click — show delta and reset
+            x0, y0 = self._beam_measure_point
+            dx = x - x0
+            dy = y - y0
+            unit_str = self._beam_y_unit_label()
+
+            # Draw line between two points
+            line = self._beam_ax.plot(
+                [x0, x], [y0, y], "-", color="#22D3EE", linewidth=1.2,
+                zorder=10,
+            )[0]
+            marker2 = self._beam_ax.plot(
+                x, y, "o", color="#22D3EE", markersize=7, zorder=10,
+            )[0]
+
+            # Delta annotation at midpoint
+            mid_x = (x0 + x) / 2.0
+            mid_y = (y0 + y) / 2.0
+            ann = self._beam_ax.annotate(
+                f"\u0394X={dx:.2f} mm\n\u0394Y={dy:.4g} {unit_str}",
+                xy=(mid_x, mid_y),
+                fontsize=9, color="#22D3EE",
+                bbox=dict(facecolor="#0F172A", edgecolor="#22D3EE",
+                          alpha=0.85, boxstyle="round,pad=0.3"),
+                ha="center", va="bottom",
+                zorder=11,
+            )
+            self._beam_measure_artists.extend([line, marker2, ann])
+            self._beam_canvas.draw_idle()
+
+            # Reset anchor for next measurement pair
+            self._beam_measure_point = None
+
     def _on_simulation_error(self, error: str) -> None:
         """Handle simulation error from worker thread."""
-        self.statusBar().showMessage(f"Simulasyon hatasi: {error}")
+        self.statusBar().showMessage(
+            t("status.simulation_error", "Simulation error: {error}").format(error=error)
+        )
 
     def _on_simulation_finished(self) -> None:
         """Re-enable simulate button after worker finishes."""
@@ -672,7 +952,7 @@ class MainWindow(QMainWindow):
         energy = self._toolbar.get_energy_keV()
         config = ComptonConfig(enabled=True, max_scatter_order=1)
 
-        self.statusBar().showMessage("Scatter simulasyonu baslatiliyor...")
+        self.statusBar().showMessage(t("status.scatter_starting", "Starting scatter simulation..."))
         self._toolbar._btn_simulate.setEnabled(False)
 
         worker = ScatterWorker(self._scatter_tracer, self)
@@ -692,7 +972,9 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_scatter_progress(self, pct: int) -> None:
-        self.statusBar().showMessage(f"Scatter: %{pct}...")
+        self.statusBar().showMessage(
+            t("status.scatter_progress", "Scatter: {pct}%...").format(pct=pct)
+        )
 
     def _on_scatter_result(self, result) -> None:
         """Handle scatter simulation result."""
@@ -712,11 +994,14 @@ class MainWindow(QMainWindow):
         self._overlay_scatter_on_beam_profile(result)
 
         self.statusBar().showMessage(
-            f"Scatter tamamlandi — "
-            f"{result.num_interactions} etkilesim, "
-            f"{result.num_reaching_detector} detektore, "
-            f"SPR={result.total_scatter_fraction:.4f}, "
-            f"t={result.elapsed_seconds:.2f}s"
+            t("status.scatter_done",
+              "Scatter complete — {interactions} interactions, {detector} to detector, "
+              "SPR={spr}, t={time}s").format(
+                interactions=result.num_interactions,
+                detector=result.num_reaching_detector,
+                spr=f"{result.total_scatter_fraction:.4f}",
+                time=f"{result.elapsed_seconds:.2f}",
+            )
         )
 
     def _overlay_scatter_on_beam_profile(self, scatter_result) -> None:
@@ -734,26 +1019,58 @@ class MainWindow(QMainWindow):
         if len(spr_pos) == 0 or len(spr_vals) == 0:
             return
 
+        # Apply dose unit scaling
+        unit = self._combo_dose_unit.currentData()
+        unatt = primary.unattenuated_dose_rate_Gy_h
+        is_db = unit == DoseDisplayUnit.DB
+        match unit:
+            case DoseDisplayUnit.GY_PER_HOUR if unatt > 0:
+                scale = unatt
+            case DoseDisplayUnit.MICROSV_PER_HOUR if unatt > 0:
+                scale = Gy_h_to_µSv_h(unatt)
+            case DoseDisplayUnit.DB:
+                scale = 1.0  # dB uses raw transmission
+            case _:
+                scale = 100.0  # relative %
+
+        scaled_ints = ints * scale
+
         # Interpolate SPR onto primary beam positions
         spr_interp = np.interp(pos, spr_pos, spr_vals, left=0.0, right=0.0)
 
         # Scatter intensity: S(x) = SPR(x) * P(x)
-        scatter_ints = spr_interp * ints
+        scatter_scaled = spr_interp * scaled_ints
 
         # Combined signal: P(x) + S(x)
-        combined = ints + scatter_ints
+        combined_raw = scaled_ints + scatter_scaled
 
         ax = self._beam_ax
-        ax.fill_between(
-            pos, ints, combined,
-            alpha=0.25, color="#EF4444",
-            label=f"Scatter (SPR={scatter_result.total_scatter_fraction:.4f})",
-        )
-        ax.plot(
-            pos, combined, color="#F8FAFC", linewidth=1.0,
-            linestyle="--", alpha=0.8,
-            label="Birlesik (P+S)",
-        )
+        if is_db:
+            # Convert to dB for scatter overlay
+            primary_db = np.where(ints > 1e-30, 10.0 * np.log10(ints), -300.0)
+            combined_t = ints + spr_interp * ints  # raw transmission
+            combined_db = np.where(combined_t > 1e-30, 10.0 * np.log10(combined_t), -300.0)
+            ax.fill_between(
+                pos, primary_db, combined_db,
+                alpha=0.25, color="#EF4444",
+                label=f"Scatter (SPR={scatter_result.total_scatter_fraction:.4f})",
+            )
+            ax.plot(
+                pos, combined_db, color="#F8FAFC", linewidth=1.0,
+                linestyle="--", alpha=0.8,
+                label=t("charts.combined_ps", "Combined (P+S)"),
+            )
+        else:
+            ax.fill_between(
+                pos, scaled_ints, combined_raw,
+                alpha=0.25, color="#EF4444",
+                label=f"Scatter (SPR={scatter_result.total_scatter_fraction:.4f})",
+            )
+            ax.plot(
+                pos, combined_raw, color="#F8FAFC", linewidth=1.0,
+                linestyle="--", alpha=0.8,
+                label=t("charts.combined_ps", "Combined (P+S)"),
+            )
 
         ax.legend(
             fontsize=9, facecolor="#1E293B", edgecolor="#475569",
@@ -763,7 +1080,9 @@ class MainWindow(QMainWindow):
         self._beam_canvas.draw()
 
     def _on_scatter_error(self, error: str) -> None:
-        self.statusBar().showMessage(f"Scatter hatasi: {error}")
+        self.statusBar().showMessage(
+            t("status.scatter_error", "Scatter error: {error}").format(error=error)
+        )
 
     def _on_scatter_finished(self) -> None:
         self._toolbar._btn_simulate.setEnabled(True)
@@ -781,12 +1100,14 @@ class MainWindow(QMainWindow):
         energies = dlg.get_energies_keV()
         num_rays = dlg.get_num_rays()
         if len(energies) < 2:
-            self.statusBar().showMessage("En az 2 enerji secin.")
+            self.statusBar().showMessage(t("status.compare_min_energies", "Select at least 2 energies."))
             return
 
         geo = self._controller.geometry
         self.statusBar().showMessage(
-            f"Karsilastirma: {len(energies)} enerji hesaplaniyor..."
+            t("status.compare_calculating", "Comparing: calculating {count} energies...").format(
+                count=len(energies)
+            )
         )
         self._toolbar._btn_simulate.setEnabled(False)
 
@@ -796,12 +1117,14 @@ class MainWindow(QMainWindow):
         worker.setup(geo, energies, num_rays)
         worker.progress.connect(
             lambda p: self.statusBar().showMessage(
-                f"Karsilastirma: %{p}..."
+                t("status.compare_progress", "Comparison: {pct}%...").format(pct=p)
             )
         )
         worker.result_ready.connect(self._on_compare_result)
         worker.error_occurred.connect(
-            lambda e: self.statusBar().showMessage(f"Karsilastirma hatasi: {e}")
+            lambda e: self.statusBar().showMessage(
+                t("status.compare_error", "Comparison error: {error}").format(error=e)
+            )
         )
         worker.finished.connect(lambda: self._toolbar._btn_simulate.setEnabled(True))
         worker.finished.connect(worker.deleteLater)
@@ -813,7 +1136,7 @@ class MainWindow(QMainWindow):
         ax = self._beam_ax
         ax.clear()
         self._setup_beam_axes()
-        ax.set_title("Enerji Karsilastirmasi", color="#F8FAFC", fontsize=12)
+        ax.set_title(t("charts.energy_comparison", "Energy Comparison"), color="#F8FAFC", fontsize=12)
 
         colors = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"]
 
@@ -838,7 +1161,9 @@ class MainWindow(QMainWindow):
 
         self._chart_tabs.setCurrentIndex(1)
         self.statusBar().showMessage(
-            f"Karsilastirma tamamlandi — {len(results)} enerji"
+            t("status.compare_done_count", "Comparison completed — {count} energies").format(
+                count=len(results)
+            )
         )
 
     # ------------------------------------------------------------------
@@ -846,8 +1171,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_energy_mode_changed(self, mode: str) -> None:
-        """Show/hide LINAC warning based on energy mode."""
+        """Show/hide LINAC warning and update dose panel based on energy mode."""
         self._linac_warning.setVisible(mode == "MeV")
+        self._properties_panel.set_energy_mode(mode)
 
     def _on_tube_config_changed(self) -> None:
         """Update spectrum chart when tube parameters change (kVp mode only)."""
@@ -859,6 +1185,7 @@ class MainWindow(QMainWindow):
             kVp=float(self._toolbar.get_slider_raw()),
             window_type=self._toolbar.get_window_type(),
             window_thickness_mm=self._toolbar.get_window_thickness_mm(),
+            added_filtration=self._toolbar.get_added_filtration(),
         )
         self._spectrum_chart.update_spectrum(config)
 
@@ -874,7 +1201,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             thresholds = dlg.get_thresholds()
             self._beam_sim.set_custom_thresholds(thresholds)
-            self.statusBar().showMessage("Esik degerleri guncellendi.")
+            self.statusBar().showMessage(t("status.thresholds_updated", "Thresholds updated"))
 
     # ------------------------------------------------------------------
     # Phase 8: Physics Validation
@@ -929,7 +1256,42 @@ class MainWindow(QMainWindow):
                 self._last_simulation_result = None
                 self._update_title()
                 self._update_recent_menu()
-                self.statusBar().showMessage(f"Tasarim yuklendi: {geometry.name}")
+                self.statusBar().showMessage(
+                    t("status.design_loaded", "Design loaded: {name}").format(name=geometry.name)
+                )
+
+    def _on_import_external(self) -> None:
+        """Import design from external application JSON format."""
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from app.export.external_import import ExternalFormatImporter
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            t("dialogs.import_external_title", "Import External Format"),
+            "",
+            t("dialogs.import_external_filter", "JSON Files (*.json)"),
+        )
+        if not path:
+            return
+
+        importer = ExternalFormatImporter()
+        try:
+            geometry = importer.import_file(path)
+            self._controller.set_geometry(geometry)
+            self._current_design_id = None
+            self._is_dirty = True
+            self._last_simulation_result = None
+            self._update_title()
+            self._view.fit_to_content()
+            self.statusBar().showMessage(
+                t("status.import_done", "External format loaded: {name} ({stages} stages)").format(
+                    name=geometry.name, stages=geometry.stage_count
+                )
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self, t("status.import_error_title", "Import Error"), str(e)
+            )
 
     def _on_save(self) -> None:
         """Save current design (or Save As if first time)."""
@@ -943,7 +1305,9 @@ class MainWindow(QMainWindow):
         self._design_repo.update_thumbnail(self._current_design_id, thumbnail)
         self._is_dirty = False
         self._update_title()
-        self.statusBar().showMessage(f"Kaydedildi: {geometry.name}")
+        self.statusBar().showMessage(
+            t("status.saved", "Saved: {name}").format(name=geometry.name)
+        )
 
     def _on_save_as(self) -> None:
         """Save current design with new name."""
@@ -962,7 +1326,9 @@ class MainWindow(QMainWindow):
             self._is_dirty = False
             self._update_title()
             self._update_recent_menu()
-            self.statusBar().showMessage(f"Kaydedildi: {name}")
+            self.statusBar().showMessage(
+                t("status.saved", "Saved: {name}").format(name=name)
+            )
 
     def _on_export(self) -> None:
         """Show export dialog and execute export."""
@@ -1001,24 +1367,32 @@ class MainWindow(QMainWindow):
                     sections, {}, canvas_img,
                 )
                 worker.result_ready.connect(
-                    lambda p: self.statusBar().showMessage(f"PDF olusturuldu: {p}")
+                    lambda p: self.statusBar().showMessage(
+                        t("status.pdf_created", "PDF created: {path}").format(path=p)
+                    )
                 )
                 worker.error_occurred.connect(
-                    lambda e: self.statusBar().showMessage(f"PDF hatasi: {e}")
+                    lambda e: self.statusBar().showMessage(
+                        t("status.pdf_error", "PDF error: {error}").format(error=e)
+                    )
                 )
                 worker.finished.connect(worker.deleteLater)
                 worker.start()
-                self.statusBar().showMessage("PDF olusturuluyor...")
+                self.statusBar().showMessage(t("status.pdf_creating", "Creating PDF..."))
                 return
 
-            self.statusBar().showMessage(f"Disa aktarildi: {path}")
+            self.statusBar().showMessage(
+                t("status.exported", "Exported: {path}").format(path=path)
+            )
         except Exception as e:
-            self.statusBar().showMessage(f"Disa aktarim hatasi: {e}")
+            self.statusBar().showMessage(
+                t("status.export_error", "Export error: {error}").format(error=e)
+            )
 
     def _on_version_history(self) -> None:
         """Show version history dialog."""
         if self._current_design_id is None:
-            self.statusBar().showMessage("Once tasarimi kaydedin.")
+            self.statusBar().showMessage(t("status.save_first", "Save the design first"))
             return
 
         dlg = VersionHistoryDialog(
@@ -1030,7 +1404,9 @@ class MainWindow(QMainWindow):
             self._is_dirty = False
             self._update_title()
             self.statusBar().showMessage(
-                f"Versiyon {dlg.restored_version} geri yuklendi"
+                t("status.version_restored", "Version {version} restored").format(
+                    version=dlg.restored_version
+                )
             )
 
     def _update_recent_menu(self) -> None:
@@ -1053,9 +1429,11 @@ class MainWindow(QMainWindow):
             self._is_dirty = False
             self._last_simulation_result = None
             self._update_title()
-            self.statusBar().showMessage(f"Tasarim yuklendi: {geometry.name}")
+            self.statusBar().showMessage(
+                t("status.design_loaded", "Design loaded: {name}").format(name=geometry.name)
+            )
         except KeyError:
-            self.statusBar().showMessage("Tasarim bulunamadi.")
+            self.statusBar().showMessage(t("status.design_not_found", "Design not found"))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_F11:

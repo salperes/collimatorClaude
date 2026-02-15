@@ -18,9 +18,14 @@ from typing import Callable
 
 import numpy as np
 
+from app.core.i18n import t
 from app.core.ray_tracer import Ray, RayTracer, compute_stage_layout
 from app.core.units import cm_to_mm, thickness_to_mfp
-from app.models.geometry import CollimatorGeometry, CollimatorType
+from app.models.geometry import (
+    CollimatorGeometry,
+    CollimatorType,
+    FocalSpotDistribution,
+)
 from app.models.simulation import (
     BeamProfile,
     MetricStatus,
@@ -179,6 +184,60 @@ class BeamSimulation:
         # Convert positions to mm (UI units)
         positions_mm = positions_cm * 10.0
 
+        # ── Focal spot PSF blur ──
+        focal_mm = geometry.source.focal_spot_size
+        if focal_mm > 0.01 and len(positions_mm) > 2:
+            focal_cm = focal_mm * 0.1
+            det_y_cm = geometry.detector.position.y / 10.0
+
+            # Object = last stage midpoint (defines beam edges)
+            last_stage = geometry.stages[-1]
+            stage_mid_y_cm = (
+                last_stage.y_position + last_stage.outer_height / 2.0
+            ) / 10.0
+
+            sod = abs(stage_mid_y_cm - src_y_cm)
+            odd = abs(det_y_cm - stage_mid_y_cm)
+
+            if sod > 1e-6:
+                ug_cm = focal_cm * odd / sod
+
+                # Resample onto uniform detector grid for convolution
+                n_grid = len(positions_mm)
+                grid_mm = np.linspace(
+                    float(positions_mm[0]), float(positions_mm[-1]), n_grid,
+                )
+                grid_intensities = np.interp(grid_mm, positions_mm, intensities)
+                grid_angles = np.interp(grid_mm, positions_mm, angles_sorted)
+
+                dx_cm = abs(grid_mm[1] - grid_mm[0]) * 0.1
+
+                if ug_cm > dx_cm and dx_cm > 0:
+                    from scipy.ndimage import gaussian_filter1d, uniform_filter1d
+
+                    dist = geometry.source.focal_spot_distribution
+                    if dist == FocalSpotDistribution.GAUSSIAN:
+                        sigma_cm = ug_cm / 2.355
+                        sigma_samples = sigma_cm / dx_cm
+                        if sigma_samples > 0.5:
+                            grid_intensities = gaussian_filter1d(
+                                grid_intensities,
+                                sigma=sigma_samples,
+                                mode="nearest",
+                            )
+                    else:
+                        width_samples = int(round(ug_cm / dx_cm))
+                        if width_samples >= 2:
+                            grid_intensities = uniform_filter1d(
+                                grid_intensities,
+                                size=width_samples,
+                                mode="nearest",
+                            )
+
+                positions_mm = grid_mm
+                intensities = grid_intensities
+                angles_sorted = grid_angles
+
         beam_profile = BeamProfile(
             positions_mm=positions_mm,
             intensities=intensities,
@@ -301,7 +360,7 @@ class BeamSimulation:
 
         metrics: list[QualityMetric] = [
             QualityMetric(
-                name="Penumbra (max)",
+                name=t("metrics.penumbra", "Penumbra (max)"),
                 value=penumbra_max,
                 unit="mm",
                 status=_classify_lower_better(penumbra_max, pen_exc, pen_acc),
@@ -309,7 +368,7 @@ class BeamSimulation:
                 threshold_acceptable=pen_acc,
             ),
             QualityMetric(
-                name="Düzlük",
+                name=t("metrics.flatness", "Flatness"),
                 value=flatness_pct,
                 unit="%",
                 status=_classify_lower_better(flatness_pct, flat_exc, flat_acc),
@@ -317,7 +376,7 @@ class BeamSimulation:
                 threshold_acceptable=flat_acc,
             ),
             QualityMetric(
-                name="Sızıntı (ort)",
+                name=t("metrics.leakage", "Leakage (avg)"),
                 value=leakage_avg_pct,
                 unit="%",
                 status=_classify_lower_better(leakage_avg_pct, leak_exc, leak_acc),
@@ -325,7 +384,7 @@ class BeamSimulation:
                 threshold_acceptable=leak_acc,
             ),
             QualityMetric(
-                name="Kolim. Oranı",
+                name=t("metrics.collimation_ratio", "Collim. Ratio"),
                 value=cr_dB,
                 unit="dB",
                 status=_classify_higher_better(cr_dB, cr_exc, cr_acc),

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSignalBlocker, Qt
 
 from app.constants import MATERIAL_IDS
+from app.core.i18n import t, TranslationManager
 from app.models.phantom import (
     GridPhantom,
     LinePairPhantom,
@@ -39,6 +40,7 @@ class PhantomPanel(QWidget):
         self._build_ui()
         self._connect_signals()
         self._refresh_all()
+        TranslationManager.on_language_changed(self.retranslate_ui)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -49,19 +51,19 @@ class PhantomPanel(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(3)
 
-        self._btn_add_wire = QPushButton("+ Tel")
+        self._btn_add_wire = QPushButton(t("phantom.add_wire", "+ Wire"))
         self._btn_add_wire.setProperty("cssClass", "small")
         btn_row.addWidget(self._btn_add_wire)
 
-        self._btn_add_lp = QPushButton("+ Çizgi")
+        self._btn_add_lp = QPushButton(t("phantom.add_lp", "+ Line"))
         self._btn_add_lp.setProperty("cssClass", "small")
         btn_row.addWidget(self._btn_add_lp)
 
-        self._btn_add_grid = QPushButton("+ Grid")
+        self._btn_add_grid = QPushButton(t("phantom.add_grid", "+ Grid"))
         self._btn_add_grid.setProperty("cssClass", "small")
         btn_row.addWidget(self._btn_add_grid)
 
-        self._btn_remove = QPushButton("- Sil")
+        self._btn_remove = QPushButton(t("phantom.remove", "- Remove"))
         self._btn_remove.setProperty("cssClass", "small-danger")
         btn_row.addWidget(self._btn_remove)
 
@@ -81,7 +83,8 @@ class PhantomPanel(QWidget):
 
         # Y Position
         row_y = QHBoxLayout()
-        row_y.addWidget(self._prop_label("Y Pozisyon:"))
+        self._lbl_y_position = self._prop_label(t("phantom.y_position", "Y Position:"))
+        row_y.addWidget(self._lbl_y_position)
         self._spin_y = QDoubleSpinBox()
         self._spin_y.setRange(0, 5000)
         self._spin_y.setSuffix(" mm")
@@ -91,7 +94,8 @@ class PhantomPanel(QWidget):
 
         # Material
         row_mat = QHBoxLayout()
-        row_mat.addWidget(self._prop_label("Malzeme:"))
+        self._lbl_material = self._prop_label(t("phantom.material", "Material:"))
+        row_mat.addWidget(self._lbl_material)
         self._combo_material = QComboBox()
         self._combo_material.setProperty("cssClass", "small-combo")
         for mid in MATERIAL_IDS:
@@ -101,7 +105,8 @@ class PhantomPanel(QWidget):
 
         # Enabled
         row_en = QHBoxLayout()
-        row_en.addWidget(self._prop_label("Etkin:"))
+        self._lbl_enabled = self._prop_label(t("phantom.enabled", "Enabled:"))
+        row_en.addWidget(self._lbl_enabled)
         self._chk_enabled = QCheckBox()
         self._chk_enabled.setChecked(True)
         row_en.addWidget(self._chk_enabled)
@@ -117,7 +122,8 @@ class PhantomPanel(QWidget):
         wire_layout.setSpacing(3)
 
         row_wd = QHBoxLayout()
-        row_wd.addWidget(self._prop_label("Çap:"))
+        self._lbl_wire_diameter = self._prop_label(t("phantom.diameter", "Diameter:"))
+        row_wd.addWidget(self._lbl_wire_diameter)
         self._spin_wire_d = QDoubleSpinBox()
         self._spin_wire_d.setRange(0.01, 10.0)
         self._spin_wire_d.setSuffix(" mm")
@@ -135,7 +141,8 @@ class PhantomPanel(QWidget):
         lp_layout.setSpacing(3)
 
         row_freq = QHBoxLayout()
-        row_freq.addWidget(self._prop_label("Frekans:"))
+        self._lbl_frequency = self._prop_label(t("phantom.frequency", "Frequency:"))
+        row_freq.addWidget(self._lbl_frequency)
         self._spin_lp_freq = QDoubleSpinBox()
         self._spin_lp_freq.setRange(0.1, 20.0)
         self._spin_lp_freq.setSuffix(" lp/mm")
@@ -144,7 +151,8 @@ class PhantomPanel(QWidget):
         lp_layout.addLayout(row_freq)
 
         row_bt = QHBoxLayout()
-        row_bt.addWidget(self._prop_label("Kalınlık:"))
+        self._lbl_thickness = self._prop_label(t("phantom.thickness", "Thickness:"))
+        row_bt.addWidget(self._lbl_thickness)
         self._spin_lp_thick = QDoubleSpinBox()
         self._spin_lp_thick.setRange(0.1, 10.0)
         self._spin_lp_thick.setSuffix(" mm")
@@ -153,7 +161,8 @@ class PhantomPanel(QWidget):
         lp_layout.addLayout(row_bt)
 
         row_nc = QHBoxLayout()
-        row_nc.addWidget(self._prop_label("Çevrim:"))
+        self._lbl_cycles = self._prop_label(t("phantom.cycles", "Cycles:"))
+        row_nc.addWidget(self._lbl_cycles)
         self._spin_lp_cycles = QSpinBox()
         self._spin_lp_cycles.setRange(1, 50)
         row_nc.addWidget(self._spin_lp_cycles)
@@ -168,7 +177,8 @@ class PhantomPanel(QWidget):
         grid_layout.setSpacing(3)
 
         row_pitch = QHBoxLayout()
-        row_pitch.addWidget(self._prop_label("Adım:"))
+        self._lbl_pitch = self._prop_label(t("phantom.pitch", "Pitch:"))
+        row_pitch.addWidget(self._lbl_pitch)
         self._spin_grid_pitch = QDoubleSpinBox()
         self._spin_grid_pitch.setRange(0.1, 50.0)
         self._spin_grid_pitch.setSuffix(" mm")
@@ -177,7 +187,8 @@ class PhantomPanel(QWidget):
         grid_layout.addLayout(row_pitch)
 
         row_gw = QHBoxLayout()
-        row_gw.addWidget(self._prop_label("Tel Çap:"))
+        self._lbl_grid_wire_d = self._prop_label(t("phantom.wire_diameter", "Wire Dia:"))
+        row_gw.addWidget(self._lbl_grid_wire_d)
         self._spin_grid_wd = QDoubleSpinBox()
         self._spin_grid_wd.setRange(0.01, 5.0)
         self._spin_grid_wd.setSuffix(" mm")
@@ -203,7 +214,7 @@ class PhantomPanel(QWidget):
     def _connect_signals(self) -> None:
         ctrl = self._controller
 
-        # Controller → panel
+        # Controller -> panel
         ctrl.phantom_added.connect(self._refresh_all)
         ctrl.phantom_removed.connect(self._refresh_all)
         ctrl.phantom_changed.connect(self._on_phantom_changed)
@@ -222,7 +233,7 @@ class PhantomPanel(QWidget):
         # List selection
         self._list.currentRowChanged.connect(self._on_list_selection)
 
-        # Property editors → controller
+        # Property editors -> controller
         self._spin_y.valueChanged.connect(self._on_y_changed)
         self._combo_material.currentIndexChanged.connect(self._on_material_changed)
         self._chk_enabled.toggled.connect(self._on_enabled_changed)
@@ -238,6 +249,34 @@ class PhantomPanel(QWidget):
         # Grid
         self._spin_grid_pitch.valueChanged.connect(self._on_grid_pitch_changed)
         self._spin_grid_wd.valueChanged.connect(self._on_grid_wd_changed)
+
+    # ------------------------------------------------------------------
+    # Retranslation
+    # ------------------------------------------------------------------
+
+    def retranslate_ui(self) -> None:
+        """Update all translatable strings after language change."""
+        self._btn_add_wire.setText(t("phantom.add_wire", "+ Wire"))
+        self._btn_add_lp.setText(t("phantom.add_lp", "+ Line"))
+        self._btn_add_grid.setText(t("phantom.add_grid", "+ Grid"))
+        self._btn_remove.setText(t("phantom.remove", "- Remove"))
+
+        # Common property labels
+        self._lbl_y_position.setText(t("phantom.y_position", "Y Position:"))
+        self._lbl_material.setText(t("phantom.material", "Material:"))
+        self._lbl_enabled.setText(t("phantom.enabled", "Enabled:"))
+
+        # Wire
+        self._lbl_wire_diameter.setText(t("phantom.diameter", "Diameter:"))
+
+        # Line-pair
+        self._lbl_frequency.setText(t("phantom.frequency", "Frequency:"))
+        self._lbl_thickness.setText(t("phantom.thickness", "Thickness:"))
+        self._lbl_cycles.setText(t("phantom.cycles", "Cycles:"))
+
+        # Grid
+        self._lbl_pitch.setText(t("phantom.pitch", "Pitch:"))
+        self._lbl_grid_wire_d.setText(t("phantom.wire_diameter", "Wire Dia:"))
 
     # ------------------------------------------------------------------
     # Refresh
@@ -320,7 +359,7 @@ class PhantomPanel(QWidget):
                 self._spin_grid_wd.setValue(phantom.wire_diameter)
 
     # ------------------------------------------------------------------
-    # Widget → controller slots
+    # Widget -> controller slots
     # ------------------------------------------------------------------
 
     def _on_remove_clicked(self) -> None:

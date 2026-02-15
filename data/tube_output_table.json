@@ -1,0 +1,56 @@
+{
+  "_description": "X-ray tube output Y [mGy/mAs @1m] lookup table. Sources: IEC 61267, BJR-17, Cranley et al. (1997), Birch & Marshall (1979).",
+  "_units": {
+    "kVp": "peak kilovoltage",
+    "Y_mGy_mAs_1m": "air kerma rate [mGy per mAs at 1 metre]"
+  },
+  "entries": [
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 40, "Y_mGy_mAs_1m": 0.0052},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 50, "Y_mGy_mAs_1m": 0.0100},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 60, "Y_mGy_mAs_1m": 0.0170},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 70, "Y_mGy_mAs_1m": 0.0260},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 80, "Y_mGy_mAs_1m": 0.0370},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 90, "Y_mGy_mAs_1m": 0.0500},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 100, "Y_mGy_mAs_1m": 0.0640},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 110, "Y_mGy_mAs_1m": 0.0790},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 120, "Y_mGy_mAs_1m": 0.0960},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 130, "Y_mGy_mAs_1m": 0.1140},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 140, "Y_mGy_mAs_1m": 0.1330},
+    {"target": "W", "filtration": "2.5mm Al", "kVp": 150, "Y_mGy_mAs_1m": 0.1540},
+
+    {"target": "W", "filtration": "1mm Al", "kVp": 40, "Y_mGy_mAs_1m": 0.0095},
+    {"target": "W", "filtration": "1mm Al", "kVp": 50, "Y_mGy_mAs_1m": 0.0170},
+    {"target": "W", "filtration": "1mm Al", "kVp": 60, "Y_mGy_mAs_1m": 0.0270},
+    {"target": "W", "filtration": "1mm Al", "kVp": 70, "Y_mGy_mAs_1m": 0.0400},
+    {"target": "W", "filtration": "1mm Al", "kVp": 80, "Y_mGy_mAs_1m": 0.0550},
+    {"target": "W", "filtration": "1mm Al", "kVp": 90, "Y_mGy_mAs_1m": 0.0730},
+    {"target": "W", "filtration": "1mm Al", "kVp": 100, "Y_mGy_mAs_1m": 0.0920},
+    {"target": "W", "filtration": "1mm Al", "kVp": 110, "Y_mGy_mAs_1m": 0.1130},
+    {"target": "W", "filtration": "1mm Al", "kVp": 120, "Y_mGy_mAs_1m": 0.1360},
+    {"target": "W", "filtration": "1mm Al", "kVp": 130, "Y_mGy_mAs_1m": 0.1600},
+    {"target": "W", "filtration": "1mm Al", "kVp": 140, "Y_mGy_mAs_1m": 0.1860},
+    {"target": "W", "filtration": "1mm Al", "kVp": 150, "Y_mGy_mAs_1m": 0.2130},
+
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 100, "Y_mGy_mAs_1m": 0.0350},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 120, "Y_mGy_mAs_1m": 0.0520},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 150, "Y_mGy_mAs_1m": 0.0810},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 200, "Y_mGy_mAs_1m": 0.1350},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 250, "Y_mGy_mAs_1m": 0.1930},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 300, "Y_mGy_mAs_1m": 0.2530},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 350, "Y_mGy_mAs_1m": 0.3160},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 400, "Y_mGy_mAs_1m": 0.3800},
+    {"target": "W", "filtration": "0.5mm Cu", "kVp": 450, "Y_mGy_mAs_1m": 0.4470},
+
+    {"target": "Mo", "filtration": "0.03mm Mo", "kVp": 25, "Y_mGy_mAs_1m": 0.0290},
+    {"target": "Mo", "filtration": "0.03mm Mo", "kVp": 28, "Y_mGy_mAs_1m": 0.0370},
+    {"target": "Mo", "filtration": "0.03mm Mo", "kVp": 30, "Y_mGy_mAs_1m": 0.0430},
+    {"target": "Mo", "filtration": "0.03mm Mo", "kVp": 32, "Y_mGy_mAs_1m": 0.0500},
+    {"target": "Mo", "filtration": "0.03mm Mo", "kVp": 35, "Y_mGy_mAs_1m": 0.0600},
+
+    {"target": "Rh", "filtration": "0.025mm Rh", "kVp": 25, "Y_mGy_mAs_1m": 0.0200},
+    {"target": "Rh", "filtration": "0.025mm Rh", "kVp": 28, "Y_mGy_mAs_1m": 0.0270},
+    {"target": "Rh", "filtration": "0.025mm Rh", "kVp": 30, "Y_mGy_mAs_1m": 0.0320},
+    {"target": "Rh", "filtration": "0.025mm Rh", "kVp": 32, "Y_mGy_mAs_1m": 0.0380},
+    {"target": "Rh", "filtration": "0.025mm Rh", "kVp": 35, "Y_mGy_mAs_1m": 0.0460}
+  ]
+}

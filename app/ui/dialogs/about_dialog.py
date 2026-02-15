@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from app.constants import APP_NAME, APP_VERSION, APP_ORGANIZATION
+from app.core.i18n import t
 
 
 class AboutDialog(QDialog):
@@ -20,7 +21,7 @@ class AboutDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Hakkinda")
+        self.setWindowTitle(t("dialogs.about_title", "About"))
         self.setFixedSize(400, 300)
 
         layout = QVBoxLayout(self)
@@ -33,7 +34,7 @@ class AboutDialog(QDialog):
         layout.addWidget(title)
 
         # Version
-        ver = QLabel(f"Versiyon {APP_VERSION}")
+        ver = QLabel(t("dialogs.about_version", "Version {version}").format(version=APP_VERSION))
         ver.setStyleSheet("font-size: 11pt; color: #94A3B8;")
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(ver)
@@ -61,8 +62,8 @@ class AboutDialog(QDialog):
 
         # Copyright
         copy_label = QLabel(
-            "X-Ray TIR kolimator tasarim, analiz ve\n"
-            "optimizasyon araci."
+            t("dialogs.about_description",
+              "X-Ray TIR collimator design, analysis\nand optimization tool.")
         )
         copy_label.setStyleSheet("font-size: 9pt; color: #64748B;")
         copy_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

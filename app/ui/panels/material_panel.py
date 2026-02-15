@@ -14,19 +14,20 @@ from PyQt6.QtCore import Qt, pyqtSignal, QMimeData
 from PyQt6.QtGui import QColor, QDrag
 
 from app.constants import MATERIAL_IDS, MATERIAL_MIME_TYPE
+from app.core.i18n import t, TranslationManager
 from app.ui.styles.colors import MATERIAL_COLORS
 
 
-# Material properties (name, symbol, Z, density g/cm3)
+# Material properties (English fallback name, symbol, Z, density g/cm3)
 _MATERIAL_INFO: dict[str, tuple[str, str, float, float]] = {
-    "Pb": ("Kurşun", "Pb", 82, 11.35),
+    "Pb": ("Lead", "Pb", 82, 11.35),
     "W": ("Tungsten", "W", 74, 19.3),
-    "SS304": ("Paslanmaz Çelik 304", "SS304", 26, 8.0),
-    "SS316": ("Paslanmaz Çelik 316", "SS316", 26, 8.0),
-    "Bi": ("Bizmut", "Bi", 83, 9.78),
-    "Al": ("Alüminyum", "Al", 13, 2.7),
-    "Cu": ("Bakır", "Cu", 29, 8.96),
-    "Bronze": ("Bronz", "CuSn", 29, 8.8),
+    "SS304": ("Stainless Steel 304", "SS304", 26, 8.0),
+    "SS316": ("Stainless Steel 316", "SS316", 26, 8.0),
+    "Bi": ("Bismuth", "Bi", 83, 9.78),
+    "Al": ("Aluminium", "Al", 13, 2.7),
+    "Cu": ("Copper", "Cu", 29, 8.96),
+    "Bronze": ("Bronze", "CuSn", 29, 8.8),
 }
 
 
@@ -72,9 +73,10 @@ class MaterialCard(QFrame):
         )
         top.addWidget(swatch)
 
-        name_label = QLabel(f"<b>{material_id}</b> — {info[0]}")
-        name_label.setStyleSheet("color: #F8FAFC; font-size: 8pt;")
-        top.addWidget(name_label, 1)
+        mat_name = t(f"materials.{material_id}", info[0])
+        self._name_label = QLabel(f"<b>{material_id}</b> — {mat_name}")
+        self._name_label.setStyleSheet("color: #F8FAFC; font-size: 8pt;")
+        top.addWidget(self._name_label, 1)
 
         layout.addLayout(top)
 
@@ -82,6 +84,12 @@ class MaterialCard(QFrame):
         detail = QLabel(f"Z={info[2]}  |  \u03C1={info[3]:.2f} g/cm\u00B3")
         detail.setStyleSheet("color: #94A3B8; font-size: 8pt; padding-left: 24px;")
         layout.addWidget(detail)
+
+    def retranslate_ui(self) -> None:
+        """Update the material display name after language change."""
+        info = _MATERIAL_INFO.get(self._material_id, ("?", "?", 0, 0))
+        mat_name = t(f"materials.{self._material_id}", info[0])
+        self._name_label.setText(f"<b>{self._material_id}</b> — {mat_name}")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -118,6 +126,7 @@ class MaterialPanel(QWidget):
         super().__init__(parent)
         self._cards: list[MaterialCard] = []
         self._build_ui()
+        TranslationManager.on_language_changed(self.retranslate_ui)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -125,9 +134,9 @@ class MaterialPanel(QWidget):
         layout.setSpacing(0)
 
         # Header
-        header = QLabel("Malzeme Kütüphanesi")
-        header.setStyleSheet("color: #F8FAFC; font-weight: bold; font-size: 10pt; padding: 4px;")
-        layout.addWidget(header)
+        self._lbl_header = QLabel(t("panels.material_library", "Material Library"))
+        self._lbl_header.setStyleSheet("color: #F8FAFC; font-weight: bold; font-size: 10pt; padding: 4px;")
+        layout.addWidget(self._lbl_header)
 
         # Scroll area for cards
         scroll = QScrollArea()
@@ -149,6 +158,12 @@ class MaterialPanel(QWidget):
         card_layout.addStretch()
         scroll.setWidget(container)
         layout.addWidget(scroll)
+
+    def retranslate_ui(self) -> None:
+        """Update all translatable strings after language change."""
+        self._lbl_header.setText(t("panels.material_library", "Material Library"))
+        for card in self._cards:
+            card.retranslate_ui()
 
     def _on_card_clicked(self, material_id: str) -> None:
         self.material_selected.emit(material_id)

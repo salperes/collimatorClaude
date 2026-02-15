@@ -9,6 +9,7 @@ Reference: FRD §4.2 FR-2.7, Phase-07 spec.
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
+from app.core.i18n import t
 from app.ui.charts.base_chart import BaseChart
 from app.ui.styles.colors import WARNING, ERROR, ACCENT, TEXT_SECONDARY
 
@@ -26,16 +27,16 @@ class SprChartWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self._info_label = QLabel("Scatter simulasyonu bekleniyor...")
+        self._info_label = QLabel(t("charts.spr_waiting", "Waiting for scatter simulation..."))
         self._info_label.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: 9pt; padding: 4px;"
         )
         layout.addWidget(self._info_label)
 
         self._chart = BaseChart(
-            title="SPR Profili (Scatter-to-Primary Ratio)",
-            x_label="Detektor Pozisyon [mm]",
-            y_label="SPR",
+            title=t("charts.spr_title", "SPR Profile (Scatter-to-Primary Ratio)"),
+            x_label=t("charts.detector_position", "Detector Position (mm)"),
+            y_label=t("charts.spr_axis", "SPR"),
         )
         self._chart.enable_crosshair()
         layout.addWidget(self._chart)
@@ -58,7 +59,7 @@ class SprChartWidget(QWidget):
 
         if len(positions) == 0 or len(spr) == 0:
             self._info_label.setText(
-                "SPR verisi yok — scatter detektore ulasamadi."
+                t("charts.spr_no_data", "No SPR data — scatter did not reach detector.")
             )
             return
 
@@ -89,10 +90,12 @@ class SprChartWidget(QWidget):
         max_spr = float(np.max(spr))
         frac_pct = scatter_result.total_scatter_fraction * 100.0
         self._info_label.setText(
-            f"Ort SPR: {mean_spr:.4f} | "
-            f"Maks SPR: {max_spr:.4f} | "
-            f"Scatter Orani: {frac_pct:.2f}% | "
-            f"Ort E': {scatter_result.mean_scattered_energy_keV:.1f} keV"
+            t("charts.spr_info", "Mean SPR: {mean} | Max SPR: {max} | Scatter Fraction: {frac}% | Mean E': {energy} keV").format(
+                mean=f"{mean_spr:.4f}",
+                max=f"{max_spr:.4f}",
+                frac=f"{frac_pct:.2f}",
+                energy=f"{scatter_result.mean_scattered_energy_keV:.1f}",
+            )
         )
 
     def clear(self) -> None:
@@ -101,4 +104,4 @@ class SprChartWidget(QWidget):
         for line in self._threshold_lines:
             self._chart.plot_widget.removeItem(line)
         self._threshold_lines.clear()
-        self._info_label.setText("Scatter simulasyonu bekleniyor...")
+        self._info_label.setText(t("charts.spr_waiting", "Waiting for scatter simulation..."))

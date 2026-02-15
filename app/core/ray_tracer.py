@@ -1,7 +1,7 @@
 """Geometric ray-tracing engine for collimator analysis.
 
 Traces rays from source through multi-stage collimator geometry,
-computing per-layer material intersections for Beer-Lambert attenuation.
+computing per-material intersections for Beer-Lambert attenuation.
 
 All internal computations in core units: cm, radian, keV.
 Geometry model values (mm, degree) are converted at the boundary.
@@ -78,50 +78,47 @@ class StageIntersection:
 
 @dataclass
 class StageLayout:
-    """Computed Y position and dimensions of a stage in core units.
+    """Computed position and dimensions of a stage in core units.
 
     Attributes:
         y_top: Top edge (entry) Y position [cm].
         y_bottom: Bottom edge (exit) Y position [cm].
         half_width: Half the outer width [cm].
+        x_center: X center offset from source axis [cm].
     """
     y_top: float
     y_bottom: float
     half_width: float
+    x_center: float = 0.0
 
 
 # ── Geometry Helpers ──
 
 
 def compute_stage_layout(geometry: CollimatorGeometry) -> list[StageLayout]:
-    """Compute Y positions for each stage in core units [cm].
+    """Compute positions for each stage in core units [cm].
 
-    Stages are centered vertically on Y=0. The layout replicates
-    the algorithm used by CollimatorScene._layout_stages().
+    Each stage's position is read directly from its y_position and
+    x_offset fields (mm), converted to cm.
 
     Args:
         geometry: Collimator geometry (dimensions in mm).
     Returns:
         List of StageLayout, one per stage, in core units [cm].
     """
-    total_h_cm = mm_to_cm(geometry.total_height)
-    y_offset = -total_h_cm / 2.0
-
     layouts: list[StageLayout] = []
-    for i, stage in enumerate(geometry.stages):
+    for stage in geometry.stages:
         h_cm = mm_to_cm(stage.outer_height)
         w_cm = mm_to_cm(stage.outer_width)
+        y_top_cm = mm_to_cm(stage.y_position)
+        x_off_cm = mm_to_cm(stage.x_offset)
 
         layouts.append(StageLayout(
-            y_top=y_offset,
-            y_bottom=y_offset + h_cm,
+            y_top=y_top_cm,
+            y_bottom=y_top_cm + h_cm,
             half_width=w_cm / 2.0,
+            x_center=x_off_cm,
         ))
-        y_offset += h_cm
-
-        if i < len(geometry.stages) - 1:
-            y_offset += mm_to_cm(stage.gap_after)
-
     return layouts
 
 
@@ -216,9 +213,9 @@ class RayTracer:
             layout = layouts[i]
             stage_h_cm = layout.y_bottom - layout.y_top
 
-            # Ray X at stage entry and exit
-            x_top = _ray_x_at_y(ray, layout.y_top)
-            x_bot = _ray_x_at_y(ray, layout.y_bottom)
+            # Ray X at stage entry and exit (local to stage center)
+            x_top = _ray_x_at_y(ray, layout.y_top) - layout.x_center
+            x_bot = _ray_x_at_y(ray, layout.y_bottom) - layout.x_center
 
             # If ray misses stage body entirely → passes through air
             if abs(x_top) > layout.half_width and abs(x_bot) > layout.half_width:
@@ -277,11 +274,11 @@ class RayTracer:
         num_rays: int,
         geometry: CollimatorGeometry,
     ) -> np.ndarray:
-        """Compute ray angles spanning the collimator body.
+        """Compute ray angles spanning the source beam cone.
 
-        All generated rays are guaranteed to intersect at least one
-        stage body.  The angle range uses the farthest body extent
-        to ensure no ray misses the body entirely.
+        Uses the source beam_angle (full cone) as the angular range.
+        Falls back to geometry-extent calculation if beam_angle is
+        not set or zero.
 
         Args:
             num_rays: Number of rays to generate.
@@ -289,6 +286,12 @@ class RayTracer:
         Returns:
             Array of angles [radian], shape (num_rays,).
         """
+        beam_angle_deg = geometry.source.beam_angle
+        if beam_angle_deg and beam_angle_deg > 0:
+            half_angle = deg_to_rad(beam_angle_deg / 2.0)
+            return np.linspace(-half_angle, half_angle, num_rays)
+
+        # Fallback: compute from geometry extent
         src_x_cm = mm_to_cm(geometry.source.position.x)
         src_y_cm = mm_to_cm(geometry.source.position.y)
 
@@ -296,17 +299,17 @@ class RayTracer:
         if not layouts:
             return np.zeros(num_rays)
 
-        # Max half-width of any stage
-        max_half_w = max(sl.half_width for sl in layouts)
+        max_extent = max(
+            max(abs(sl.x_center + sl.half_width - src_x_cm),
+                abs(sl.x_center - sl.half_width - src_x_cm))
+            for sl in layouts
+        )
 
-        # Use the farthest body boundary (bottom of last stage) so that
-        # rays at max_angle still intersect the body at the far end.
         dy_max = max(abs(sl.y_bottom - src_y_cm) for sl in layouts)
         if dy_max < 1e-10:
             dy_max = 1e-10
 
-        max_angle = math.atan2(max_half_w - abs(src_x_cm), dy_max)
-
+        max_angle = math.atan2(max_extent, dy_max)
         return np.linspace(-max_angle, max_angle, num_rays)
 
     def compute_detector_position(
@@ -332,11 +335,11 @@ class RayTracer:
         layout: StageLayout,
         ctype: CollimatorType,
     ) -> list[LayerIntersection]:
-        """Compute per-material path lengths via Y-sampling.
+        """Compute material path length via Y-sampling (solid body).
 
-        Samples _SAMPLES_PER_STAGE Y positions through the stage.
-        At each Y, determines lateral distance from aperture edge,
-        identifies which layer the ray is in, and accumulates path length.
+        The entire stage body is material except the aperture cut.
+        Any sample point inside the stage outer rect but outside the
+        aperture is material.
 
         Args:
             ray: Ray in core units.
@@ -344,71 +347,39 @@ class RayTracer:
             layout: Precomputed stage layout (cm units).
             ctype: Collimator type.
         Returns:
-            List of LayerIntersection with per-material path lengths [cm].
+            List with single LayerIntersection for the stage material [cm].
         """
         stage_h_cm = layout.y_bottom - layout.y_top
         dy = stage_h_cm / _SAMPLES_PER_STAGE
         cos_angle = math.cos(ray.angle)
         path_per_step = dy / cos_angle if abs(cos_angle) > 1e-12 else dy
 
-        # Build layer boundary table: sorted by order (inner → outer)
-        # Each entry: (cumulative_start_cm, cumulative_end_cm, material_id, layer_idx)
-        sorted_layers = sorted(stage.layers, key=lambda l: l.order)
-        boundaries: list[tuple[float, float, str, int]] = []
-        cumulative = 0.0
-        for li, layer in enumerate(sorted_layers):
-            t_cm = mm_to_cm(layer.thickness)
-            if layer.is_composite:
-                inner_w_cm = mm_to_cm(layer.inner_width)
-                # Inner zone (aperture side)
-                boundaries.append((
-                    cumulative, cumulative + inner_w_cm,
-                    layer.inner_material_id, li,
-                ))
-                # Outer zone
-                boundaries.append((
-                    cumulative + inner_w_cm, cumulative + t_cm,
-                    layer.material_id, li,
-                ))
-            else:
-                boundaries.append((
-                    cumulative, cumulative + t_cm,
-                    layer.material_id, li,
-                ))
-            cumulative += t_cm
-
-        # Accumulate path per material
-        material_paths: dict[str, float] = {}
+        total_path = 0.0
 
         for step in range(_SAMPLES_PER_STAGE):
             y = layout.y_top + (step + 0.5) * dy
-            x = _ray_x_at_y(ray, y)
+            x_local = _ray_x_at_y(ray, y) - layout.x_center
             y_local = y - layout.y_top
 
             ap_half = aperture_half_width_at_y(
                 stage.aperture, ctype, y_local, stage_h_cm,
             )
 
-            dist_from_aperture = abs(x) - ap_half
-            if dist_from_aperture <= 0:
-                continue  # in aperture
+            # In aperture → skip
+            if abs(x_local) <= ap_half:
+                continue
 
-            if abs(x) > layout.half_width:
-                continue  # outside stage body
+            # Outside stage body → skip
+            if abs(x_local) > layout.half_width:
+                continue
 
-            # Find which layer/zone
-            for inner_off, outer_off, mat_id, _ in boundaries:
-                if inner_off <= dist_from_aperture < outer_off:
-                    material_paths[mat_id] = (
-                        material_paths.get(mat_id, 0.0) + path_per_step
-                    )
-                    break
+            # In solid material → accumulate
+            total_path += path_per_step
 
-        return [
-            LayerIntersection(
-                path_length=path,
-                material_id=mat_id,
-            )
-            for mat_id, path in material_paths.items()
-            if path > 0
-        ]
+        if total_path <= 0:
+            return []
+
+        return [LayerIntersection(
+            path_length=total_path,
+            material_id=stage.material_id,
+        )]

@@ -8,6 +8,7 @@ Reference: Phase-05 spec — FR-3.3.4.
 import numpy as np
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
+from app.core.i18n import t
 from app.core.material_database import MaterialService
 from app.core.physics_engine import PhysicsEngine
 from app.core.units import cm_to_mm
@@ -38,14 +39,14 @@ class TransmissionChartWidget(QWidget):
         self._selector.selection_changed.connect(lambda _: self._update_chart())
         layout.addWidget(self._selector)
 
-        self._energy_label = QLabel(f"Enerji: {self._energy:.0f} keV")
+        self._energy_label = QLabel(t("charts.energy_label", "Energy: {energy} keV").format(energy=f"{self._energy:.0f}"))
         self._energy_label.setStyleSheet("color: #B0BEC5; font-size: 9pt;")
         layout.addWidget(self._energy_label)
 
         self._chart = BaseChart(
-            title="Iletim Orani vs Kalinlik",
-            x_label="Kalinlik [mm]",
-            y_label="Iletim (T)",
+            title=t("charts.transmission_title", "Transmission vs Thickness"),
+            x_label=t("charts.thickness_axis", "Thickness [mm]"),
+            y_label=t("charts.transmission_axis", "Transmission (T)"),
         )
         self._chart.enable_crosshair()
         layout.addWidget(self._chart, stretch=1)
@@ -55,7 +56,7 @@ class TransmissionChartWidget(QWidget):
     def set_energy(self, energy_keV: float) -> None:
         """Update energy and redraw chart."""
         self._energy = energy_keV
-        self._energy_label.setText(f"Enerji: {energy_keV:.0f} keV")
+        self._energy_label.setText(t("charts.energy_label", "Energy: {energy} keV").format(energy=f"{energy_keV:.0f}"))
         self._update_chart()
 
     def _update_chart(self) -> None:

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
+from app.core.i18n import t
 from app.database.design_repository import DesignRepository
 
 
@@ -26,7 +27,9 @@ class VersionHistoryDialog(QDialog):
         self.restored_version: int | None = None
 
         name = repo.get_design_name(design_id)
-        self.setWindowTitle(f"Versiyon Gecmisi — {name}")
+        self.setWindowTitle(
+            t("dialogs.version_history_title", "Version History \u2014 {name}").format(name=name)
+        )
         self.setMinimumSize(500, 350)
 
         layout = QVBoxLayout(self)
@@ -35,7 +38,9 @@ class VersionHistoryDialog(QDialog):
         self._table = QTableWidget()
         self._table.setColumnCount(3)
         self._table.setHorizontalHeaderLabels([
-            "Versiyon", "Tarih", "Degisiklik Notu",
+            t("dialogs.version_col_version", "Version"),
+            t("dialogs.version_col_date", "Date"),
+            t("dialogs.version_col_note", "Change Note"),
         ])
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -49,11 +54,11 @@ class VersionHistoryDialog(QDialog):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self._btn_restore = QPushButton("Bu Versiyona Geri Don")
+        self._btn_restore = QPushButton(t("dialogs.version_restore", "Restore This Version"))
         self._btn_restore.clicked.connect(self._on_restore)
         btn_layout.addWidget(self._btn_restore)
 
-        self._btn_close = QPushButton("Kapat")
+        self._btn_close = QPushButton(t("common.close", "Close"))
         self._btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(self._btn_close)
 

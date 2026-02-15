@@ -23,7 +23,6 @@ from app.core.build_up_factors import BuildUpFactors
 from app.core.compton_engine import ComptonEngine
 from app.core.material_database import MaterialService
 from app.core.physics_engine import PhysicsEngine
-from app.models.geometry import CollimatorLayer
 
 # Try importing xraylib — graceful degradation if unavailable
 try:
@@ -301,25 +300,22 @@ class ValidationRunner:
         self._add("V2-TVL/HVL-ratio", group, "TVL/HVL = 3.3219",
                   ratio, expected_ratio, 0.01)
 
-        # V2.07 — Single layer Beer-Lambert
-        layer = CollimatorLayer(material_id="Pb", thickness=10.0, purpose="test")
-        att = self._pe.calculate_attenuation([layer], 200.0, include_buildup=False)
+        # V2.07 — Single slab Beer-Lambert
+        att = self._pe.calculate_slab_attenuation("Pb", 10.0, 200.0, include_buildup=False)
         expected_T = math.exp(-mu * 1.0)  # 10mm = 1cm
         self._add("V2-BeerLambert-Pb-10mm-200", group,
                   "Beer-Lambert 10mm Pb @ 200 keV",
                   att.transmission, expected_T, 0.1)
 
-        # V2.08 — Multi-layer Beer-Lambert
-        layers = [
-            CollimatorLayer(material_id="Pb", thickness=5.0, purpose="test"),
-            CollimatorLayer(material_id="W", thickness=5.0, purpose="test"),
-        ]
-        att2 = self._pe.calculate_attenuation(layers, 200.0, include_buildup=False)
+        # V2.08 — Multi-slab Beer-Lambert
+        att_pb = self._pe.calculate_slab_attenuation("Pb", 5.0, 200.0, include_buildup=False)
+        att_w = self._pe.calculate_slab_attenuation("W", 5.0, 200.0, include_buildup=False)
         mu_w = self._pe.linear_attenuation("W", 200.0)
         expected_T2 = math.exp(-mu * 0.5 - mu_w * 0.5)
+        combined_T = att_pb.transmission * att_w.transmission
         self._add("V2-multilayer-PbW-200", group,
-                  "Multi-layer 5mm Pb + 5mm W @ 200 keV",
-                  att2.transmission, expected_T2, 0.1)
+                  "Multi-slab 5mm Pb + 5mm W @ 200 keV",
+                  combined_T, expected_T2, 0.1)
 
     # ------------------------------------------------------------------
     # V3: BuildUpFactors — ANSI reference values
@@ -552,44 +548,38 @@ class ValidationRunner:
     def _run_v6_beam(self, base_pct: int, span: int) -> None:
         group = "V6"
 
-        # V6.01 — Single layer slab
+        # V6.01 — Single slab
         tid = "V6-slab-Pb-10mm-200"
         self._emit(base_pct, span, 0.0, tid)
-        layer = CollimatorLayer(material_id="Pb", thickness=10.0, purpose="test")
-        result = self._pe.calculate_attenuation([layer], 200.0, include_buildup=False)
+        result = self._pe.calculate_slab_attenuation("Pb", 10.0, 200.0, include_buildup=False)
         mu = self._pe.linear_attenuation("Pb", 200.0)
         expected = math.exp(-mu * 1.0)
         self._add(tid, group, "10mm Pb @ 200 keV", result.transmission, expected, 0.1)
 
-        # V6.02 — Multi-layer
-        layers = [
-            CollimatorLayer(material_id="Pb", thickness=5.0, purpose="test"),
-            CollimatorLayer(material_id="W", thickness=5.0, purpose="test"),
-        ]
-        result2 = self._pe.calculate_attenuation(layers, 200.0, include_buildup=False)
+        # V6.02 — Multi-slab
+        att_pb = self._pe.calculate_slab_attenuation("Pb", 5.0, 200.0, include_buildup=False)
+        att_w = self._pe.calculate_slab_attenuation("W", 5.0, 200.0, include_buildup=False)
         mu_w = self._pe.linear_attenuation("W", 200.0)
         expected2 = math.exp(-mu * 0.5 - mu_w * 0.5)
+        combined_T = att_pb.transmission * att_w.transmission
         self._add("V6-multi-PbW-200", group, "5mm Pb + 5mm W @ 200 keV",
-                  result2.transmission, expected2, 0.1)
+                  combined_T, expected2, 0.1)
 
         # V6.03 — Thick slab near zero
-        layer_thick = CollimatorLayer(material_id="Pb", thickness=100.0, purpose="test")
-        result3 = self._pe.calculate_attenuation([layer_thick], 100.0, include_buildup=False)
+        result3 = self._pe.calculate_slab_attenuation("Pb", 100.0, 100.0, include_buildup=False)
         self._add("V6-thick-Pb-100mm", group, "100mm Pb @ 100 keV -> T ~ 0",
                   1.0 if result3.transmission < 1e-30 else 0.0, 1.0, 0.0)
 
-        # V6.04 — At HVL → T = 0.5
+        # V6.04 — At HVL -> T = 0.5
         hvl_result = self._pe.calculate_hvl_tvl("Pb", 200.0)
         hvl_mm = hvl_result.hvl_cm * 10.0
-        layer_hvl = CollimatorLayer(material_id="Pb", thickness=hvl_mm, purpose="test")
-        att_hvl = self._pe.calculate_attenuation([layer_hvl], 200.0, include_buildup=False)
+        att_hvl = self._pe.calculate_slab_attenuation("Pb", hvl_mm, 200.0, include_buildup=False)
         self._add("V6-at-HVL", group, "T at HVL = 0.5",
                   att_hvl.transmission, 0.5, 0.1)
 
-        # V6.05 — At TVL → T = 0.1
+        # V6.05 — At TVL -> T = 0.1
         tvl_mm = hvl_result.tvl_cm * 10.0
-        layer_tvl = CollimatorLayer(material_id="Pb", thickness=tvl_mm, purpose="test")
-        att_tvl = self._pe.calculate_attenuation([layer_tvl], 200.0, include_buildup=False)
+        att_tvl = self._pe.calculate_slab_attenuation("Pb", tvl_mm, 200.0, include_buildup=False)
         self._add("V6-at-TVL", group, "T at TVL = 0.1",
                   att_tvl.transmission, 0.1, 0.1)
 

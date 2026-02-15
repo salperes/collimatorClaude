@@ -57,6 +57,14 @@ class SimulationConfig:
 # ── Phase 4: Ray-tracing results ──
 
 
+class DoseDisplayUnit(Enum):
+    """Beam profile Y-axis display unit."""
+    RELATIVE_PCT = "relative_pct"
+    GY_PER_HOUR = "Gy/h"
+    MICROSV_PER_HOUR = "µSv/h"
+    DB = "dB"
+
+
 class MetricStatus(Enum):
     """Traffic-light status for quality metrics."""
     EXCELLENT = "excellent"
@@ -153,3 +161,4 @@ class SimulationResult:
     elapsed_seconds: float = 0.0
     include_buildup: bool = False
     scatter_result: object | None = None  # ScatterResult (Phase 7, optional)
+    unattenuated_dose_rate_Gy_h: float = 0.0  # Open-beam dose at detector [Gy/h]

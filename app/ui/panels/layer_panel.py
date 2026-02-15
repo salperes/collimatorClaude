@@ -1,8 +1,8 @@
-"""Layer panel — right dock panel for stage/layer management.
+"""Layer panel — right dock panel for stage management.
 
 Top: Stage selector (combo + add/remove/move buttons)
-Middle: Stage properties (name, purpose, dimensions, gap)
-Bottom: Layer list (material, thickness, purpose, delete)
+Middle: Stage properties (name, purpose, dimensions, gap, material, wall thickness)
+Bottom: Aperture configuration
 
 Reference: Phase-03 spec — FR-1.4, Stage/Layer Management.
 """
@@ -11,302 +11,37 @@ import math
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QDoubleSpinBox, QLineEdit, QScrollArea,
-    QFrame, QSizePolicy,
+    QPushButton, QDoubleSpinBox, QLineEdit, QFrame,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSignalBlocker, QMimeData
-from PyQt6.QtGui import QColor, QDrag
+from PyQt6.QtCore import Qt, QSignalBlocker
 
-from app.constants import MATERIAL_IDS, MAX_STAGES, MIN_STAGES, LAYER_MIME_TYPE, MATERIAL_MIME_TYPE
+from app.constants import MATERIAL_IDS, MAX_STAGES, MIN_STAGES, MATERIAL_MIME_TYPE
+from app.core.i18n import t, TranslationManager
 from app.models.geometry import (
-    StagePurpose, LayerPurpose, ApertureConfig, CollimatorType,
+    StagePurpose, ApertureConfig, CollimatorType,
 )
 from app.ui.canvas.geometry_controller import GeometryController
 from app.ui.styles.colors import MATERIAL_COLORS
 
 
-
-# Stage purpose display names
-_STAGE_PURPOSE_NAMES = {
-    StagePurpose.PRIMARY_SHIELDING: "Birincil Koruma",
-    StagePurpose.SECONDARY_SHIELDING: "İkincil Koruma",
-    StagePurpose.FAN_DEFINITION: "Yelpaze Tanımlama",
-    StagePurpose.PENUMBRA_TRIMMER: "Penumbra Budama",
-    StagePurpose.FILTER: "Filtre",
-    StagePurpose.CUSTOM: "Özel",
-}
-
-_LAYER_PURPOSE_NAMES = {
-    LayerPurpose.PRIMARY_SHIELDING: "Birincil Koruma",
-    LayerPurpose.SECONDARY_SHIELDING: "İkincil Koruma",
-    LayerPurpose.STRUCTURAL: "Yapısal",
-    LayerPurpose.FILTER: "Filtre",
+# Stage purpose English fallback names (keyed by StagePurpose enum name)
+_PURPOSE_DEFAULTS: dict[str, str] = {
+    "PRIMARY_SHIELDING": "Primary Shielding",
+    "SECONDARY_SHIELDING": "Secondary Shielding",
+    "FAN_DEFINITION": "Fan Definition",
+    "PENUMBRA_TRIMMER": "Penumbra Trimmer",
+    "FILTER": "Filter",
+    "CUSTOM": "Custom",
 }
 
 
-class LayerRowWidget(QFrame):
-    """Single layer row in the layer list.
-
-    Shows material, thickness, and an optional composite (K) toggle.
-    When composite is active, a second row appears with inner material
-    and inner width controls.
-    """
-
-    material_changed = pyqtSignal(int, str)
-    thickness_changed = pyqtSignal(int, float)
-    purpose_changed = pyqtSignal(int, object)
-    delete_clicked = pyqtSignal(int)
-    row_clicked = pyqtSignal(int)
-    layer_dropped = pyqtSignal(int, int)  # from_idx, to_idx
-    composite_toggled = pyqtSignal(int, bool)
-    inner_material_changed = pyqtSignal(int, str)
-    inner_width_changed = pyqtSignal(int, float)
-
-    def __init__(
-        self, layer_index: int, material_id: str,
-        thickness: float, purpose: LayerPurpose,
-        inner_material_id: str | None = None,
-        inner_width: float = 0.0,
-        parent: QWidget | None = None,
-    ):
-        super().__init__(parent)
-        self._layer_index = layer_index
-        self._drag_start = None
-        self.setAcceptDrops(True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            LayerRowWidget {
-                background: #1E293B;
-                border: 1px solid #334155;
-                border-radius: 3px;
-            }
-            LayerRowWidget:hover {
-                border: 1px solid #3B82F6;
-            }
-        """)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(4, 3, 4, 3)
-        main_layout.setSpacing(2)
-
-        # --- Top row: order, swatch, material, thickness, K, delete ---
-        top_row = QHBoxLayout()
-        top_row.setSpacing(4)
-
-        # Order label
-        self._order_label = QLabel(f"{layer_index}")
-        self._order_label.setFixedWidth(16)
-        self._order_label.setStyleSheet("color: #64748B; font-size: 8pt;")
-        top_row.addWidget(self._order_label)
-
-        # Color swatch
-        color_hex = MATERIAL_COLORS.get(material_id, "#64748B")
-        self._swatch = QLabel()
-        self._swatch.setFixedSize(12, 12)
-        self._swatch.setStyleSheet(
-            f"background: {color_hex}; border-radius: 2px;"
-        )
-        top_row.addWidget(self._swatch)
-
-        # Material combo
-        self._mat_combo = QComboBox()
-        self._mat_combo.setFixedWidth(65)
-        self._mat_combo.setStyleSheet("font-size: 8pt;")
-        for mid in MATERIAL_IDS:
-            self._mat_combo.addItem(mid, mid)
-        idx = MATERIAL_IDS.index(material_id) if material_id in MATERIAL_IDS else 0
-        self._mat_combo.setCurrentIndex(idx)
-        self._mat_combo.currentIndexChanged.connect(self._on_mat_changed)
-        top_row.addWidget(self._mat_combo)
-
-        # Thickness spin
-        self._thick_spin = QDoubleSpinBox()
-        self._thick_spin.setRange(0.1, 500.0)
-        self._thick_spin.setDecimals(1)
-        self._thick_spin.setSuffix(" mm")
-        self._thick_spin.setValue(thickness)
-        self._thick_spin.setFixedWidth(80)
-        self._thick_spin.setStyleSheet("font-size: 8pt;")
-        self._thick_spin.valueChanged.connect(self._on_thick_changed)
-        top_row.addWidget(self._thick_spin)
-
-        # Composite toggle button
-        self._btn_composite = QPushButton("K")
-        self._btn_composite.setCheckable(True)
-        self._btn_composite.setFixedSize(20, 20)
-        self._btn_composite.setToolTip("Kompozit katman (İç/Dış zon)")
-        self._btn_composite.setProperty("cssClass", "composite-toggle")
-        is_composite = inner_material_id is not None and inner_width > 0
-        self._btn_composite.setChecked(is_composite)
-        self._btn_composite.toggled.connect(self._on_composite_toggled)
-        top_row.addWidget(self._btn_composite)
-
-        # Delete button
-        del_btn = QPushButton("\u2715")
-        del_btn.setFixedSize(20, 20)
-        del_btn.setProperty("cssClass", "inline-delete")
-        del_btn.clicked.connect(lambda: self.delete_clicked.emit(self._layer_index))
-        top_row.addWidget(del_btn)
-
-        main_layout.addLayout(top_row)
-
-        # --- Bottom row: composite controls (hidden by default) ---
-        self._composite_row = QWidget()
-        comp_layout = QHBoxLayout(self._composite_row)
-        comp_layout.setContentsMargins(20, 0, 0, 0)
-        comp_layout.setSpacing(4)
-
-        lbl_ic = QLabel("İç:")
-        lbl_ic.setStyleSheet("color: #F59E0B; font-size: 7pt;")
-        lbl_ic.setFixedWidth(16)
-        comp_layout.addWidget(lbl_ic)
-
-        # Inner material combo
-        self._inner_mat_combo = QComboBox()
-        self._inner_mat_combo.setFixedWidth(60)
-        self._inner_mat_combo.setStyleSheet("font-size: 8pt;")
-        for mid in MATERIAL_IDS:
-            self._inner_mat_combo.addItem(mid, mid)
-        if inner_material_id and inner_material_id in MATERIAL_IDS:
-            self._inner_mat_combo.setCurrentIndex(
-                MATERIAL_IDS.index(inner_material_id),
-            )
-        self._inner_mat_combo.currentIndexChanged.connect(
-            self._on_inner_mat_changed,
-        )
-        comp_layout.addWidget(self._inner_mat_combo)
-
-        lbl_w = QLabel("Gen:")
-        lbl_w.setStyleSheet("color: #F59E0B; font-size: 7pt;")
-        lbl_w.setFixedWidth(22)
-        comp_layout.addWidget(lbl_w)
-
-        # Inner width spin
-        self._inner_width_spin = QDoubleSpinBox()
-        self._inner_width_spin.setRange(0.1, 200.0)
-        self._inner_width_spin.setDecimals(1)
-        self._inner_width_spin.setSuffix(" mm")
-        self._inner_width_spin.setValue(inner_width if inner_width > 0 else 1.0)
-        self._inner_width_spin.setFixedWidth(70)
-        self._inner_width_spin.setStyleSheet("font-size: 8pt;")
-        self._inner_width_spin.valueChanged.connect(self._on_inner_width_changed)
-        comp_layout.addWidget(self._inner_width_spin)
-
-        comp_layout.addStretch()
-
-        self._composite_row.setVisible(is_composite)
-        main_layout.addWidget(self._composite_row)
-
-    def _on_mat_changed(self, idx: int) -> None:
-        mat_id = self._mat_combo.currentData()
-        if mat_id:
-            color_hex = MATERIAL_COLORS.get(mat_id, "#64748B")
-            self._swatch.setStyleSheet(
-                f"background: {color_hex}; border-radius: 2px;"
-            )
-            self.material_changed.emit(self._layer_index, mat_id)
-
-    def _on_thick_changed(self, value: float) -> None:
-        self.thickness_changed.emit(self._layer_index, value)
-
-    def _on_composite_toggled(self, checked: bool) -> None:
-        self._composite_row.setVisible(checked)
-        self.composite_toggled.emit(self._layer_index, checked)
-
-    def _on_inner_mat_changed(self, idx: int) -> None:
-        mat_id = self._inner_mat_combo.currentData()
-        if mat_id:
-            self.inner_material_changed.emit(self._layer_index, mat_id)
-
-    def _on_inner_width_changed(self, value: float) -> None:
-        self.inner_width_changed.emit(self._layer_index, value)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_start = event.pos()
-        self.row_clicked.emit(self._layer_index)
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if not (event.buttons() & Qt.MouseButton.LeftButton):
-            return
-        if self._drag_start is None:
-            return
-        if (event.pos() - self._drag_start).manhattanLength() < 10:
-            return
-        drag = QDrag(self)
-        mime = QMimeData()
-        mime.setData(LAYER_MIME_TYPE, str(self._layer_index).encode())
-        drag.setMimeData(mime)
-        pixmap = self.grab()
-        pixmap.setDevicePixelRatio(1.0)
-        drag.setPixmap(pixmap.scaledToWidth(min(pixmap.width(), 200)))
-        drag.setHotSpot(event.pos())
-        drag.exec(Qt.DropAction.MoveAction)
-
-    def dragEnterEvent(self, event):
-        md = event.mimeData()
-        if md.hasFormat(LAYER_MIME_TYPE) or md.hasFormat(MATERIAL_MIME_TYPE):
-            event.acceptProposedAction()
-            self._set_drop_highlight(True)
-        else:
-            event.ignore()
-
-    def dragLeaveEvent(self, event):
-        self._set_drop_highlight(False)
-        super().dragLeaveEvent(event)
-
-    def dragMoveEvent(self, event):
-        event.acceptProposedAction()
-
-    def dropEvent(self, event):
-        self._set_drop_highlight(False)
-        md = event.mimeData()
-        if md.hasFormat(LAYER_MIME_TYPE):
-            from_idx = int(md.data(LAYER_MIME_TYPE).data().decode())
-            if from_idx != self._layer_index:
-                self.layer_dropped.emit(from_idx, self._layer_index)
-            event.acceptProposedAction()
-        elif md.hasFormat(MATERIAL_MIME_TYPE):
-            mat_id = md.data(MATERIAL_MIME_TYPE).data().decode()
-            self.material_changed.emit(self._layer_index, mat_id)
-            event.acceptProposedAction()
-
-    def _set_drop_highlight(self, active: bool) -> None:
-        if active:
-            self.setStyleSheet("""
-                LayerRowWidget {
-                    background: #1E293B;
-                    border: 2px solid #3B82F6;
-                    border-radius: 3px;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                LayerRowWidget {
-                    background: #1E293B;
-                    border: 1px solid #334155;
-                    border-radius: 3px;
-                }
-                LayerRowWidget:hover {
-                    border: 1px solid #3B82F6;
-                }
-            """)
-
-    def set_highlighted(self, highlighted: bool) -> None:
-        border = "#3B82F6" if highlighted else "#334155"
-        bg = "#1E3A5F" if highlighted else "#1E293B"
-        self.setStyleSheet(f"""
-            LayerRowWidget {{
-                background: {bg};
-                border: 1px solid {border};
-                border-radius: 3px;
-            }}
-        """)
+def _get_purpose_name(purpose: StagePurpose) -> str:
+    default = _PURPOSE_DEFAULTS.get(purpose.name, purpose.name)
+    return t(f"stage_purpose.{purpose.name}", default)
 
 
 class LayerPanel(QWidget):
-    """Right dock panel — stage selector + layer management."""
+    """Right dock panel — stage selector + stage properties."""
 
     def __init__(
         self,
@@ -315,10 +50,10 @@ class LayerPanel(QWidget):
     ):
         super().__init__(parent)
         self._controller = controller
-        self._layer_rows: list[LayerRowWidget] = []
         self._build_ui()
         self._connect_signals()
         self._refresh_all()
+        TranslationManager.on_language_changed(self.retranslate_ui)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -326,9 +61,9 @@ class LayerPanel(QWidget):
         layout.setSpacing(6)
 
         # --- Stage selector ---
-        stage_header = QLabel("Stage Seçimi")
-        stage_header.setStyleSheet("color: #F8FAFC; font-weight: bold; font-size: 8pt;")
-        layout.addWidget(stage_header)
+        self._lbl_stage_header = QLabel(t("panels.stage_selection", "Stage Selection"))
+        self._lbl_stage_header.setStyleSheet("color: #F8FAFC; font-weight: bold; font-size: 8pt;")
+        layout.addWidget(self._lbl_stage_header)
 
         stage_row = QHBoxLayout()
         stage_row.setSpacing(4)
@@ -339,25 +74,25 @@ class LayerPanel(QWidget):
 
         self._btn_add_stage = QPushButton("+")
         self._btn_add_stage.setFixedSize(24, 24)
-        self._btn_add_stage.setToolTip("Stage ekle")
+        self._btn_add_stage.setToolTip(t("panels.add_stage", "Add stage"))
         self._btn_add_stage.setProperty("cssClass", "small-icon")
         stage_row.addWidget(self._btn_add_stage)
 
         self._btn_remove_stage = QPushButton("\u2212")
         self._btn_remove_stage.setFixedSize(24, 24)
-        self._btn_remove_stage.setToolTip("Stage sil")
+        self._btn_remove_stage.setToolTip(t("panels.remove_stage", "Remove stage"))
         self._btn_remove_stage.setProperty("cssClass", "small-icon")
         stage_row.addWidget(self._btn_remove_stage)
 
         self._btn_move_up = QPushButton("\u25B2")
         self._btn_move_up.setFixedSize(24, 24)
-        self._btn_move_up.setToolTip("Yukarı taşı")
+        self._btn_move_up.setToolTip(t("panels.move_up", "Move up"))
         self._btn_move_up.setProperty("cssClass", "small-icon")
         stage_row.addWidget(self._btn_move_up)
 
         self._btn_move_down = QPushButton("\u25BC")
         self._btn_move_down.setFixedSize(24, 24)
-        self._btn_move_down.setToolTip("Aşağı taşı")
+        self._btn_move_down.setToolTip(t("panels.move_down", "Move down"))
         self._btn_move_down.setProperty("cssClass", "small-icon")
         stage_row.addWidget(self._btn_move_down)
 
@@ -372,7 +107,8 @@ class LayerPanel(QWidget):
 
         # Name
         name_row = QHBoxLayout()
-        name_row.addWidget(self._make_label("Ad:"))
+        self._lbl_name = self._make_label(t("panels.name", "Name:"))
+        name_row.addWidget(self._lbl_name)
         self._edit_name = QLineEdit()
         self._edit_name.setStyleSheet("font-size: 8pt;")
         name_row.addWidget(self._edit_name)
@@ -380,79 +116,82 @@ class LayerPanel(QWidget):
 
         # Purpose
         purpose_row = QHBoxLayout()
-        purpose_row.addWidget(self._make_label("Amaç:"))
+        self._lbl_purpose = self._make_label(t("panels.purpose", "Purpose:"))
+        purpose_row.addWidget(self._lbl_purpose)
         self._combo_purpose = QComboBox()
         self._combo_purpose.setStyleSheet("font-size: 8pt;")
-        for p, name in _STAGE_PURPOSE_NAMES.items():
-            self._combo_purpose.addItem(name, p)
+        for p in StagePurpose:
+            self._combo_purpose.addItem(_get_purpose_name(p), p)
         purpose_row.addWidget(self._combo_purpose)
         props_layout.addLayout(purpose_row)
 
-        # Dimensions row
+        # Dimensions row (G = width, T = thickness/height)
         dim_row = QHBoxLayout()
-        dim_row.addWidget(self._make_label("G:"))
+        self._lbl_width = self._make_label(t("panels.outer_width", "W (width):"))
+        dim_row.addWidget(self._lbl_width)
         self._spin_width = QDoubleSpinBox()
-        self._spin_width.setRange(10, 1000)
+        self._spin_width.setRange(0.5, 1000)
         self._spin_width.setSuffix(" mm")
         self._spin_width.setDecimals(1)
         self._spin_width.setStyleSheet("font-size: 8pt;")
         dim_row.addWidget(self._spin_width)
 
-        dim_row.addWidget(self._make_label("Y:"))
+        self._lbl_height = self._make_label(t("panels.outer_height", "T (thickness):"))
+        dim_row.addWidget(self._lbl_height)
         self._spin_height = QDoubleSpinBox()
-        self._spin_height.setRange(10, 1000)
+        self._spin_height.setRange(0.5, 1000)
         self._spin_height.setSuffix(" mm")
         self._spin_height.setDecimals(1)
         self._spin_height.setStyleSheet("font-size: 8pt;")
         dim_row.addWidget(self._spin_height)
         props_layout.addLayout(dim_row)
 
-        # Gap
-        gap_row = QHBoxLayout()
-        gap_row.addWidget(self._make_label("Boşluk:"))
-        self._spin_gap = QDoubleSpinBox()
-        self._spin_gap.setRange(0, 500)
-        self._spin_gap.setSuffix(" mm")
-        self._spin_gap.setDecimals(1)
-        self._spin_gap.setStyleSheet("font-size: 8pt;")
-        gap_row.addWidget(self._spin_gap)
-        gap_row.addStretch()
-        props_layout.addLayout(gap_row)
+        # Position row (X = offset, Y = position)
+        pos_row = QHBoxLayout()
+        self._lbl_x = self._make_label(t("panels.x_offset", "X:"))
+        pos_row.addWidget(self._lbl_x)
+        self._spin_x_offset = QDoubleSpinBox()
+        self._spin_x_offset.setRange(-2000, 2000)
+        self._spin_x_offset.setSuffix(" mm")
+        self._spin_x_offset.setDecimals(1)
+        self._spin_x_offset.setStyleSheet("font-size: 8pt;")
+        pos_row.addWidget(self._spin_x_offset)
+
+        self._lbl_y = self._make_label(t("panels.y_pos", "Y:"))
+        pos_row.addWidget(self._lbl_y)
+        self._spin_y_position = QDoubleSpinBox()
+        self._spin_y_position.setRange(-2000, 2000)
+        self._spin_y_position.setSuffix(" mm")
+        self._spin_y_position.setDecimals(1)
+        self._spin_y_position.setStyleSheet("font-size: 8pt;")
+        pos_row.addWidget(self._spin_y_position)
+        props_layout.addLayout(pos_row)
+
+        # Material
+        mat_row = QHBoxLayout()
+        self._lbl_material = self._make_label(t("panels.material", "Material:"))
+        mat_row.addWidget(self._lbl_material)
+        self._combo_material = QComboBox()
+        self._combo_material.setStyleSheet("font-size: 8pt;")
+        for mid in MATERIAL_IDS:
+            self._combo_material.addItem(mid, mid)
+        mat_row.addWidget(self._combo_material)
+
+        # Material color swatch
+        self._mat_swatch = QLabel()
+        self._mat_swatch.setFixedSize(14, 14)
+        self._mat_swatch.setStyleSheet("background: #64748B; border-radius: 2px;")
+        mat_row.addWidget(self._mat_swatch)
+        props_layout.addLayout(mat_row)
 
         layout.addWidget(props)
 
-        # --- Layer list ---
-        layer_header_row = QHBoxLayout()
-        layer_lbl = QLabel("Katmanlar")
-        layer_lbl.setStyleSheet("color: #F8FAFC; font-weight: bold; font-size: 8pt;")
-        layer_header_row.addWidget(layer_lbl)
-        layer_header_row.addStretch()
-        self._btn_add_layer = QPushButton("+ Katman")
-        self._btn_add_layer.setProperty("cssClass", "small")
-        layer_header_row.addWidget(self._btn_add_layer)
-        layout.addLayout(layer_header_row)
-
-        # Scroll area for layer rows
-        self._layer_scroll = QScrollArea()
-        self._layer_scroll.setWidgetResizable(True)
-        self._layer_scroll.setMinimumHeight(120)
-        self._layer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._layer_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-
-        self._layer_container = QWidget()
-        self._layer_layout = QVBoxLayout(self._layer_container)
-        self._layer_layout.setContentsMargins(0, 0, 0, 0)
-        self._layer_layout.setSpacing(3)
-        self._layer_layout.addStretch()
-        self._layer_scroll.setWidget(self._layer_container)
-        layout.addWidget(self._layer_scroll, 1)
-
         # --- Aperture ---
-        ap_header = QLabel("Aperture")
-        ap_header.setStyleSheet(
+        self._lbl_aperture_header = QLabel("Aperture")
+        self._lbl_aperture_header.setStyleSheet(
             "color: #F8FAFC; font-weight: bold; font-size: 8pt;"
         )
-        layout.addWidget(ap_header)
+        layout.addWidget(self._lbl_aperture_header)
 
         ap_frame = QFrame()
         ap_frame.setProperty("cssClass", "prop-frame")
@@ -462,7 +201,7 @@ class LayerPanel(QWidget):
 
         # Fan angle
         self._fan_row = QHBoxLayout()
-        self._fan_row_label = self._make_label("Açı:")
+        self._fan_row_label = self._make_label(t("aperture.angle", "Angle:"))
         self._fan_row.addWidget(self._fan_row_label)
         self._spin_fan_angle = QDoubleSpinBox()
         self._spin_fan_angle.setRange(1, 90)
@@ -474,7 +213,7 @@ class LayerPanel(QWidget):
 
         # Fan slit width
         self._fan_sw_row = QHBoxLayout()
-        self._fan_sw_label = self._make_label("Yarık:")
+        self._fan_sw_label = self._make_label(t("aperture.slit_width", "Slit:"))
         self._fan_sw_row.addWidget(self._fan_sw_label)
         self._spin_fan_slit = QDoubleSpinBox()
         self._spin_fan_slit.setRange(0.1, 100)
@@ -486,7 +225,7 @@ class LayerPanel(QWidget):
 
         # Pencil diameter
         self._pencil_row = QHBoxLayout()
-        self._pencil_label = self._make_label("Çap:")
+        self._pencil_label = self._make_label(t("aperture.diameter", "Diameter:"))
         self._pencil_row.addWidget(self._pencil_label)
         self._spin_pencil_d = QDoubleSpinBox()
         self._spin_pencil_d.setRange(0.1, 100)
@@ -498,7 +237,7 @@ class LayerPanel(QWidget):
 
         # Slit input width (source side)
         self._slit_in_row = QHBoxLayout()
-        self._slit_in_label = self._make_label("Giriş:")
+        self._slit_in_label = self._make_label(t("aperture.entry", "Entry:"))
         self._slit_in_row.addWidget(self._slit_in_label)
         self._spin_slit_in = QDoubleSpinBox()
         self._spin_slit_in.setRange(0.1, 200)
@@ -510,7 +249,7 @@ class LayerPanel(QWidget):
 
         # Slit output width (detector side)
         self._slit_out_row = QHBoxLayout()
-        self._slit_out_label = self._make_label("Çıkış:")
+        self._slit_out_label = self._make_label(t("aperture.exit", "Exit:"))
         self._slit_out_row.addWidget(self._slit_out_label)
         self._spin_slit_out = QDoubleSpinBox()
         self._spin_slit_out.setRange(0.1, 200)
@@ -521,6 +260,7 @@ class LayerPanel(QWidget):
         ap_layout.addLayout(self._slit_out_row)
 
         layout.addWidget(ap_frame)
+        layout.addStretch()
 
     def _make_label(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -537,10 +277,7 @@ class LayerPanel(QWidget):
         ctrl.stage_added.connect(lambda _: self._refresh_all())
         ctrl.stage_removed.connect(lambda _: self._refresh_all())
         ctrl.stage_selected.connect(self._on_stage_selected)
-        ctrl.layer_changed.connect(self._on_layer_changed)
-        ctrl.layer_added.connect(lambda s, l: self._rebuild_layer_rows())
-        ctrl.layer_removed.connect(lambda s, l: self._rebuild_layer_rows())
-        ctrl.layer_selected.connect(self._on_layer_selected)
+        ctrl.stage_position_changed.connect(self._on_stage_position_changed)
 
         # Panel widgets -> controller
         self._stage_combo.currentIndexChanged.connect(self._on_stage_combo_changed)
@@ -552,8 +289,9 @@ class LayerPanel(QWidget):
         self._combo_purpose.currentIndexChanged.connect(self._on_purpose_changed)
         self._spin_width.valueChanged.connect(self._on_width_changed)
         self._spin_height.valueChanged.connect(self._on_height_changed)
-        self._spin_gap.valueChanged.connect(self._on_gap_changed)
-        self._btn_add_layer.clicked.connect(self._on_add_layer)
+        self._spin_x_offset.valueChanged.connect(self._on_x_offset_changed)
+        self._spin_y_position.valueChanged.connect(self._on_y_position_changed)
+        self._combo_material.currentIndexChanged.connect(self._on_material_changed)
 
         # Aperture
         self._spin_fan_angle.valueChanged.connect(self._on_aperture_changed)
@@ -566,11 +304,52 @@ class LayerPanel(QWidget):
         ctrl.collimator_type_changed.connect(lambda _: self._refresh_aperture())
 
     # ------------------------------------------------------------------
+    # Retranslation
+    # ------------------------------------------------------------------
+
+    def retranslate_ui(self) -> None:
+        """Update all translatable strings after language change."""
+        self._lbl_stage_header.setText(t("panels.stage_selection", "Stage Selection"))
+        self._btn_add_stage.setToolTip(t("panels.add_stage", "Add stage"))
+        self._btn_remove_stage.setToolTip(t("panels.remove_stage", "Remove stage"))
+        self._btn_move_up.setToolTip(t("panels.move_up", "Move up"))
+        self._btn_move_down.setToolTip(t("panels.move_down", "Move down"))
+        self._lbl_name.setText(t("panels.name", "Name:"))
+        self._lbl_width.setText(t("panels.outer_width", "W (width):"))
+        self._lbl_height.setText(t("panels.outer_height", "T (thickness):"))
+        self._lbl_x.setText(t("panels.x_offset", "X:"))
+        self._lbl_y.setText(t("panels.y_pos", "Y:"))
+        self._lbl_material.setText(t("panels.material", "Material:"))
+
+        # Purpose combo — repopulate with translated names
+        self._lbl_purpose.setText(t("panels.purpose", "Purpose:"))
+        current_purpose = self._combo_purpose.currentData()
+        with QSignalBlocker(self._combo_purpose):
+            self._combo_purpose.clear()
+            for p in StagePurpose:
+                self._combo_purpose.addItem(_get_purpose_name(p), p)
+            if current_purpose is not None:
+                for i in range(self._combo_purpose.count()):
+                    if self._combo_purpose.itemData(i) == current_purpose:
+                        self._combo_purpose.setCurrentIndex(i)
+                        break
+
+        # Aperture labels
+        self._fan_row_label.setText(t("aperture.angle", "Angle:"))
+        self._fan_sw_label.setText(t("aperture.slit_width", "Slit:"))
+        self._pencil_label.setText(t("aperture.diameter", "Diameter:"))
+        self._slit_in_label.setText(t("aperture.entry", "Entry:"))
+        self._slit_out_label.setText(t("aperture.exit", "Exit:"))
+
+        # Refresh stage combo text (names may include translated parts)
+        self._refresh_all()
+
+    # ------------------------------------------------------------------
     # Refresh
     # ------------------------------------------------------------------
 
     def _refresh_all(self) -> None:
-        """Full refresh of stage combo and layer list."""
+        """Full refresh of stage combo and properties."""
         geo = self._controller.geometry
         with QSignalBlocker(self._stage_combo):
             self._stage_combo.clear()
@@ -580,7 +359,6 @@ class LayerPanel(QWidget):
             self._stage_combo.setCurrentIndex(self._controller.active_stage_index)
 
         self._refresh_stage_props()
-        self._rebuild_layer_rows()
         self._update_stage_buttons()
         self._refresh_aperture()
 
@@ -612,39 +390,21 @@ class LayerPanel(QWidget):
             self._spin_width.setValue(stage.outer_width)
         with QSignalBlocker(self._spin_height):
             self._spin_height.setValue(stage.outer_height)
-        with QSignalBlocker(self._spin_gap):
-            self._spin_gap.setValue(stage.gap_after)
+        with QSignalBlocker(self._spin_x_offset):
+            self._spin_x_offset.setValue(stage.x_offset)
+        with QSignalBlocker(self._spin_y_position):
+            self._spin_y_position.setValue(stage.y_position)
+        with QSignalBlocker(self._combo_material):
+            idx = MATERIAL_IDS.index(stage.material_id) if stage.material_id in MATERIAL_IDS else 0
+            self._combo_material.setCurrentIndex(idx)
+        self._update_material_swatch(stage.material_id)
 
-    def _rebuild_layer_rows(self) -> None:
-        """Recreate layer row widgets from active stage."""
-        # Clear existing rows
-        for row in self._layer_rows:
-            row.setParent(None)
-        self._layer_rows.clear()
-
-        stage = self._controller.active_stage
-        if not stage:
-            return
-
-        # Insert before the stretch
-        for i, layer in enumerate(stage.layers):
-            row = LayerRowWidget(
-                i, layer.material_id, layer.thickness, layer.purpose,
-                inner_material_id=layer.inner_material_id,
-                inner_width=layer.inner_width,
-            )
-            row.material_changed.connect(self._on_layer_mat_changed)
-            row.thickness_changed.connect(self._on_layer_thick_changed)
-            row.delete_clicked.connect(self._on_layer_delete)
-            row.row_clicked.connect(self._on_layer_row_clicked)
-            row.layer_dropped.connect(self._on_layer_dropped)
-            row.composite_toggled.connect(self._on_layer_composite_toggled)
-            row.inner_material_changed.connect(self._on_layer_inner_mat_changed)
-            row.inner_width_changed.connect(self._on_layer_inner_width_changed)
-            self._layer_layout.insertWidget(
-                self._layer_layout.count() - 1, row,
-            )
-            self._layer_rows.append(row)
+    def _update_material_swatch(self, material_id: str) -> None:
+        """Update material color swatch."""
+        color_hex = MATERIAL_COLORS.get(material_id, "#64748B")
+        self._mat_swatch.setStyleSheet(
+            f"background: {color_hex}; border-radius: 2px;"
+        )
 
     # ------------------------------------------------------------------
     # Slots from controller
@@ -658,17 +418,8 @@ class LayerPanel(QWidget):
         with QSignalBlocker(self._stage_combo):
             self._stage_combo.setCurrentIndex(index)
         self._refresh_stage_props()
-        self._rebuild_layer_rows()
         self._update_stage_buttons()
         self._refresh_aperture()
-
-    def _on_layer_changed(self, stage_idx: int, layer_idx: int) -> None:
-        if stage_idx == self._controller.active_stage_index:
-            self._rebuild_layer_rows()
-
-    def _on_layer_selected(self, stage_idx: int, layer_idx: int) -> None:
-        for row in self._layer_rows:
-            row.set_highlighted(row._layer_index == layer_idx)
 
     # ------------------------------------------------------------------
     # Slots from widgets
@@ -716,53 +467,33 @@ class LayerPanel(QWidget):
             self._controller.active_stage_index, height=value,
         )
 
-    def _on_gap_changed(self, value: float) -> None:
-        self._controller.set_stage_gap_after(
+    def _on_x_offset_changed(self, value: float) -> None:
+        self._controller.set_stage_x_offset(
             self._controller.active_stage_index, value,
         )
 
-    def _on_add_layer(self) -> None:
-        self._controller.add_layer(self._controller.active_stage_index)
-
-    def _on_layer_mat_changed(self, layer_idx: int, mat_id: str) -> None:
-        self._controller.set_layer_material(
-            self._controller.active_stage_index, layer_idx, mat_id,
+    def _on_y_position_changed(self, value: float) -> None:
+        self._controller.set_stage_y_position(
+            self._controller.active_stage_index, value,
         )
 
-    def _on_layer_thick_changed(self, layer_idx: int, thickness: float) -> None:
-        self._controller.set_layer_thickness(
-            self._controller.active_stage_index, layer_idx, thickness,
-        )
+    def _on_material_changed(self, idx: int) -> None:
+        mat_id = self._combo_material.currentData()
+        if mat_id:
+            self._update_material_swatch(mat_id)
+            self._controller.set_stage_material(
+                self._controller.active_stage_index, mat_id,
+            )
 
-    def _on_layer_delete(self, layer_idx: int) -> None:
-        self._controller.remove_layer(
-            self._controller.active_stage_index, layer_idx,
-        )
-
-    def _on_layer_dropped(self, from_idx: int, to_idx: int) -> None:
-        self._controller.move_layer(
-            self._controller.active_stage_index, from_idx, to_idx,
-        )
-
-    def _on_layer_row_clicked(self, layer_idx: int) -> None:
-        self._controller.select_layer(
-            self._controller.active_stage_index, layer_idx,
-        )
-
-    def _on_layer_composite_toggled(self, layer_idx: int, enabled: bool) -> None:
-        self._controller.set_layer_composite(
-            self._controller.active_stage_index, layer_idx, enabled,
-        )
-
-    def _on_layer_inner_mat_changed(self, layer_idx: int, mat_id: str) -> None:
-        self._controller.set_layer_inner_material(
-            self._controller.active_stage_index, layer_idx, mat_id,
-        )
-
-    def _on_layer_inner_width_changed(self, layer_idx: int, width: float) -> None:
-        self._controller.set_layer_inner_width(
-            self._controller.active_stage_index, layer_idx, width,
-        )
+    def _on_stage_position_changed(self, index: int) -> None:
+        """Update X/Y spinners when stage is dragged on canvas."""
+        if index == self._controller.active_stage_index:
+            stage = self._controller.active_stage
+            if stage:
+                with QSignalBlocker(self._spin_x_offset):
+                    self._spin_x_offset.setValue(stage.x_offset)
+                with QSignalBlocker(self._spin_y_position):
+                    self._spin_y_position.setValue(stage.y_position)
 
     # ------------------------------------------------------------------
     # Aperture

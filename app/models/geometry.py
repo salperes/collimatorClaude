@@ -1,8 +1,9 @@
 """Geometry data models for collimator design.
 
-Multi-Stage architecture (v2.0): A collimator consists of one or more
-stages arranged along the beam axis, separated by gaps (air/vacuum).
-Each stage has its own aperture, layers, and outer dimensions.
+Multi-Stage architecture (v3.0): A collimator consists of one or more
+stages arranged along the beam axis. Each stage is a solid body with
+a single material and an aperture cut. Stage positions are explicit
+(y_position, x_offset) relative to the source focal spot.
 
 All UI-facing dimensions are in mm, angles in degrees.
 Core computations convert via app.core.units before use.
@@ -38,12 +39,6 @@ class FocalSpotDistribution(Enum):
     GAUSSIAN = "gaussian"
 
 
-class LayerPurpose(Enum):
-    PRIMARY_SHIELDING = "primary_shielding"
-    SECONDARY_SHIELDING = "secondary_shielding"
-    STRUCTURAL = "structural"
-    FILTER = "filter"
-
 
 class StagePurpose(Enum):
     """Functional purpose of a collimator stage in the beam path."""
@@ -72,12 +67,21 @@ class SourceConfig:
         energy_MeV: Monoenergetic energy [MeV] (isotope sources).
         focal_spot_size: Focal spot diameter [mm].
         focal_spot_distribution: Spatial intensity profile (uniform / gaussian).
+        beam_angle: X-ray beam spread full cone angle [degree].
+            0.0 means auto-calculate from geometry extent.
     """
     position: Point2D = field(default_factory=Point2D)
     energy_kVp: Optional[float] = None
     energy_MeV: Optional[float] = None
     focal_spot_size: float = 1.0
     focal_spot_distribution: FocalSpotDistribution = FocalSpotDistribution.UNIFORM
+    beam_angle: float = 0.0
+    # Dose / intensity parameters
+    tube_current_mA: float = 8.0
+    tube_output_method: str = "empirical"     # "empirical" or "lookup"
+    linac_pps: int = 260
+    linac_dose_rate_Gy_min: float = 0.8
+    linac_ref_pps: int = 260
 
 
 @dataclass
@@ -103,58 +107,27 @@ class ApertureConfig:
 
 
 @dataclass
-class CollimatorLayer:
-    """Single material layer in a collimator stage.
-
-    Supports optional composite (İç/Dış) zones: when inner_material_id
-    is set and inner_width > 0, the layer has two lateral zones:
-      - Inner zone (aperture side, width = inner_width): inner_material_id
-      - Outer zone (remaining thickness): material_id
-
-    Attributes:
-        id: Unique layer identifier.
-        order: Stacking order (0 = innermost).
-        material_id: Primary (outer zone) material reference.
-        thickness: Total layer thickness [mm].
-        purpose: Layer functional purpose.
-        inner_material_id: Composite inner zone material (None = not composite).
-        inner_width: Inner zone width [mm] (0 = not composite).
-    """
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    order: int = 0
-    material_id: str = ""
-    thickness: float = 0.0
-    purpose: LayerPurpose = LayerPurpose.PRIMARY_SHIELDING
-    inner_material_id: str | None = None
-    inner_width: float = 0.0
-
-    @property
-    def is_composite(self) -> bool:
-        """True if this layer has İç/Dış zones."""
-        return self.inner_material_id is not None and self.inner_width > 0
-
-
-@dataclass
 class CollimatorStage:
     """A single collimator stage (body) in the beam path.
 
-    Each stage is an independent collimator body with its own aperture,
-    layers, and physical dimensions. Stages are ordered along the beam
-    axis from source to detector.
+    The stage body is SOLID: material fills the entire outer rectangle
+    except for the aperture cut. No inner void or wall thickness concept.
 
-    Example 3-stage layout:
-        Source → [Internal] → (gap) → [Fan] → (gap) → [Penumbra] → Detector
+    Stage position is explicit: y_position is the top edge Y relative
+    to source focal spot (Y=0), x_offset is the center X offset from
+    source axis (X=0).
 
     Attributes:
         id: Unique stage identifier.
         name: User-given stage name (e.g. "Internal", "Fan", "Penumbra").
         order: Position along beam axis (0 = closest to source).
         purpose: Functional purpose of this stage.
-        outer_width: Total outer width [mm].
-        outer_height: Total outer height along beam axis [mm].
+        outer_width: Total outer width (G) [mm].
+        outer_height: Total outer height / thickness along beam axis (T) [mm].
         aperture: Aperture configuration for this stage.
-        layers: Material layers (inner to outer).
-        gap_after: Gap distance to next stage [mm]. Ignored for last stage.
+        material_id: Shielding material identifier (e.g. "Pb", "W").
+        y_position: Y position of stage top edge relative to source [mm].
+        x_offset: X offset of stage center from source axis [mm].
     """
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
@@ -163,8 +136,9 @@ class CollimatorStage:
     outer_width: float = 100.0
     outer_height: float = 200.0
     aperture: ApertureConfig = field(default_factory=ApertureConfig)
-    layers: list[CollimatorLayer] = field(default_factory=list)
-    gap_after: float = 0.0
+    material_id: str = "Pb"
+    y_position: float = 0.0
+    x_offset: float = 0.0
 
 
 # Deprecated alias — use CollimatorStage instead.
@@ -190,8 +164,8 @@ class CollimatorGeometry:
     """Complete collimator design geometry.
 
     The design consists of one or more stages arranged along the beam
-    axis from source to detector. Each stage is an independent body
-    with its own aperture and layers. Stages are separated by gaps.
+    axis from source to detector. Each stage is a solid body with its
+    own aperture and material. Stage positions are explicit.
 
     For single-stage designs, ``stages`` contains exactly one element.
 
@@ -230,11 +204,9 @@ class CollimatorGeometry:
 
     @property
     def total_height(self) -> float:
-        """Total height of all stages plus inter-stage gaps [mm]."""
+        """Total span from topmost stage top to bottommost stage bottom [mm]."""
         if not self.stages:
             return 0.0
-        height = sum(s.outer_height for s in self.stages)
-        # Add gaps between stages (last stage's gap_after is ignored)
-        if len(self.stages) > 1:
-            height += sum(s.gap_after for s in self.stages[:-1])
-        return height
+        top = min(s.y_position for s in self.stages)
+        bottom = max(s.y_position + s.outer_height for s in self.stages)
+        return bottom - top

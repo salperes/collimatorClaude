@@ -37,23 +37,24 @@ WINDOW_GLASS_AL_EQ_MM = 1.0     # Glass tube inherent filtration (Al-equivalent)
 WINDOW_BE_THICKNESS_MM = 0.5    # Beryllium window thickness
 
 # Multi-stage geometry
-GEOMETRY_SCHEMA_VERSION = "2.0"
+GEOMETRY_SCHEMA_VERSION = "3.1"
 MAX_STAGES = 10
 MIN_STAGES = 1
-DEFAULT_GAP_MM = 0.0
+
+# Supported languages: (code, display_name)
+SUPPORTED_LANGUAGES = [("tr", "Türkçe"), ("en", "English"), ("de", "Deutsch")]
+DEFAULT_LANGUAGE = "tr"
 
 # Canvas grid
 GRID_SPACING_OPTIONS = [1.0, 5.0, 10.0, 50.0]  # mm
 DEFAULT_GRID_SPACING = 10.0  # mm
 
 # Drag-drop MIME types
-LAYER_MIME_TYPE = "application/x-collimator-layer-index"
 MATERIAL_MIME_TYPE = "application/x-collimator-material"
 
 # Canvas visual
 HANDLE_SIZE = 6  # pixels (cosmetic, zoom-invariant)
 LAYER_OPACITY = 0.85  # 85% fill (brighter for dark background)
-LAYER_BORDER_OPACITY = 0.4  # 40% dashed borders
 BEAM_LINE_OPACITY = 0.4  # 40% beam path lines
 RULER_WIDTH = 30  # pixels
 

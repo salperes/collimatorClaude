@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QDoubleSpinBox, QGroupBox, QFormLayout,
 )
 
+from app.core.i18n import t
+
 
 # Default thresholds (matching beam_simulation.py defaults)
 DEFAULT_THRESHOLDS = {
@@ -32,7 +34,7 @@ class ThresholdDialog(QDialog):
 
     def __init__(self, current: dict | None = None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Kalite Esik Degerleri")
+        self.setWindowTitle(t("dialogs.threshold_title", "Quality Threshold Values"))
         self.setMinimumWidth(380)
         self._spins: dict[str, QDoubleSpinBox] = {}
         self._current = current or dict(DEFAULT_THRESHOLDS)
@@ -42,40 +44,40 @@ class ThresholdDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Penumbra group
-        pen_group = QGroupBox("Penumbra [mm] (dusuk = iyi)")
+        pen_group = QGroupBox(t("dialogs.threshold_penumbra", "Penumbra [mm] (lower = better)"))
         pen_form = QFormLayout(pen_group)
-        pen_form.addRow("Mukemmel <=", self._spin("penumbra_excellent", 0.1, 50.0))
-        pen_form.addRow("Kabul <=", self._spin("penumbra_acceptable", 0.1, 100.0))
+        pen_form.addRow(t("dialogs.threshold_excellent_le", "Excellent <="), self._spin("penumbra_excellent", 0.1, 50.0))
+        pen_form.addRow(t("dialogs.threshold_acceptable_le", "Acceptable <="), self._spin("penumbra_acceptable", 0.1, 100.0))
         layout.addWidget(pen_group)
 
         # Flatness group
-        flat_group = QGroupBox("Duzluk [%] (dusuk = iyi)")
+        flat_group = QGroupBox(t("dialogs.threshold_flatness", "Flatness [%] (lower = better)"))
         flat_form = QFormLayout(flat_group)
-        flat_form.addRow("Mukemmel <=", self._spin("flatness_excellent", 0.1, 50.0))
-        flat_form.addRow("Kabul <=", self._spin("flatness_acceptable", 0.1, 100.0))
+        flat_form.addRow(t("dialogs.threshold_excellent_le", "Excellent <="), self._spin("flatness_excellent", 0.1, 50.0))
+        flat_form.addRow(t("dialogs.threshold_acceptable_le", "Acceptable <="), self._spin("flatness_acceptable", 0.1, 100.0))
         layout.addWidget(flat_group)
 
         # Leakage group
-        leak_group = QGroupBox("Sizinti [%] (dusuk = iyi)")
+        leak_group = QGroupBox(t("dialogs.threshold_leakage", "Leakage [%] (lower = better)"))
         leak_form = QFormLayout(leak_group)
-        leak_form.addRow("Mukemmel <=", self._spin("leakage_excellent", 0.001, 50.0))
-        leak_form.addRow("Kabul <=", self._spin("leakage_acceptable", 0.01, 100.0))
+        leak_form.addRow(t("dialogs.threshold_excellent_le", "Excellent <="), self._spin("leakage_excellent", 0.001, 50.0))
+        leak_form.addRow(t("dialogs.threshold_acceptable_le", "Acceptable <="), self._spin("leakage_acceptable", 0.01, 100.0))
         layout.addWidget(leak_group)
 
         # CR group
-        cr_group = QGroupBox("Kolim. Orani [dB] (yuksek = iyi)")
+        cr_group = QGroupBox(t("dialogs.threshold_cr", "Collim. Ratio [dB] (higher = better)"))
         cr_form = QFormLayout(cr_group)
-        cr_form.addRow("Mukemmel >=", self._spin("cr_excellent", 1.0, 100.0))
-        cr_form.addRow("Kabul >=", self._spin("cr_acceptable", 1.0, 100.0))
+        cr_form.addRow(t("dialogs.threshold_excellent_ge", "Excellent >="), self._spin("cr_excellent", 1.0, 100.0))
+        cr_form.addRow(t("dialogs.threshold_acceptable_ge", "Acceptable >="), self._spin("cr_acceptable", 1.0, 100.0))
         layout.addWidget(cr_group)
 
         # Buttons
         btn_layout = QHBoxLayout()
-        btn_reset = QPushButton("Varsayilan")
+        btn_reset = QPushButton(t("dialogs.threshold_default", "Default"))
         btn_reset.clicked.connect(self._reset_defaults)
-        btn_ok = QPushButton("Uygula")
+        btn_ok = QPushButton(t("common.apply", "Apply"))
         btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton("Iptal")
+        btn_cancel = QPushButton(t("common.cancel", "Cancel"))
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_reset)
         btn_layout.addStretch()

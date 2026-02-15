@@ -56,7 +56,7 @@ collimator/
 │   ├── ui/                     # PyQt6 arayuz
 │   │   ├── styles/             # QSS tema + renk paleti
 │   │   ├── canvas/             # QGraphicsScene/View kolimator editoru
-│   │   ├── panels/             # Yan paneller (malzeme, katman, parametre, sonuc)
+│   │   ├── panels/             # Yan paneller (malzeme, stage, parametre, sonuc)
 │   │   ├── charts/             # Grafik widget'lari
 │   │   ├── dialogs/            # Diyalog pencereleri
 │   │   ├── widgets/            # Ozel widget'lar
@@ -107,21 +107,26 @@ Birim karisikligi en yuksek hata riskini tasir. Asagidaki kurallar kesinlikle uy
 5. Build-up hesabinda: `thickness_cm -> mfp` donusumu build-up fonksiyonundan hemen once yapilir
 6. Her core fonksiyonunun docstring'inde giris/cikis birimleri acikca yazilir
 
-## Multi-Stage Mimari (v2.0)
+## Multi-Stage Mimari (v3.0)
 
-Kolimator tasarimi **cok asamali** (multi-stage) mimariye sahiptir:
+Kolimator tasarimi **cok asamali** (multi-stage), **kati govde** (solid body) mimariye sahiptir:
 
 ```
-Kaynak → [Stage 0: Internal] → (gap) → [Stage 1: Fan] → (gap) → [Stage 2: Penumbra] → Detektor
+Kaynak (Y=0) → [Stage 0: y=25mm] → [Stage 1: y=155mm] → [Stage 2: y=235mm] → Detektor
 ```
 
-- **`CollimatorStage`**: Her stage bagimsiz bir govdedir (kendi aperture, katmanlar, boyutlar)
+- **`CollimatorStage`**: Her stage bagimsiz bir kati govdedir (aperture haricinde tamamen malzeme)
 - **`CollimatorGeometry.stages`**: `list[CollimatorStage]` — 1-N arasi stage
-- **`gap_after`**: Stage uzerinde, sonraki stage'e kadar bosluk (mm). Son stage'de ignored.
+- **`material_id`**: Stage malzemesi (orn. "Pb", "W"). Her stage tek malzeme.
+- **`y_position`**: Stage ust kenari Y pozisyonu [mm]. Y=0 = kaynak fokal spot.
+- **`x_offset`**: Stage merkezi X ofseti [mm]. X=0 = kaynak ekseni.
+- **`outer_width`**: Stage genisligi (G) [mm].
+- **`outer_height`**: Stage kalinligi (T) [mm].
+- **Kati govde**: `wall_thickness` KALDIRILDI — stage tamamen malzeme, aperture haric.
+- **Explicit pozisyon**: `gap_after` ve `source_to_assembly_distance` KALDIRILDI — her stage kendi Y pozisyonuna sahip.
 - **`StagePurpose`**: PRIMARY_SHIELDING, FAN_DEFINITION, PENUMBRA_TRIMMER, vb.
 - **Geriye uyumluluk**: `CollimatorBody = CollimatorStage` (deprecated alias), `geometry.body` → `stages[0]`
-- Tek stage'li tasarim = eski tek-govde modeli
-- **Kompozit katman**: `CollimatorLayer.inner_material_id` + `inner_width` — ic/dis zon destegi (orn. ortasi W, disi Pb)
+- **Schema v2→v3 migration**: `gap_after` + `source_to_assembly_distance` → `y_position` (serializer handles automatically)
 
 ## Kod Kurallari
 
@@ -147,7 +152,7 @@ Alasimlarin (SS304, SS316, Bronze) mu/rho degerleri **mixture rule** ile hesapla
 - Birincil yontem: **GP (Geometric Progression)** formulu
 - Alternatif: **Taylor** iki-terimli ustel formul
 - Veri kaynagi: `buildup_coefficients.json`
-- Cok katmanli: Kalos formulu veya son malzeme yontemi
+- Cok stage'li: Her stage kendi malzeme/kalinlik degeriyle bagimsiz hesaplanir
 
 ## Test Kurallari
 
@@ -158,13 +163,36 @@ Alasimlarin (SS304, SS316, Bronze) mu/rho degerleri **mixture rule** ile hesapla
 - Marker: `@pytest.mark.benchmark` (CI'da otomatik calisir)
 - Entegrasyon testleri: `@pytest.mark.integration` (release oncesi)
 
+### NIST XCOM Dogrulama (ZORUNLU)
+
+Asagidaki hesaplama motoru dosyalarindan **herhangi biri** degistirildiginde, NIST XCOM dogrulama testleri **mutlaka** calistirilmalidir:
+
+**Tetikleyen dosyalar:**
+- `app/core/physics_engine.py`
+- `app/core/material_database.py`
+- `app/core/beam_simulation.py`
+- `app/core/ray_tracer.py`
+- `app/core/build_up_factors.py`
+- `app/core/compton_engine.py`
+- `app/core/scatter_tracer.py`
+- `app/core/klein_nishina_sampler.py`
+- `app/core/units.py`
+- `data/nist_xcom/*.json`
+
+**Calistirilacak komut:**
+```
+pytest tests/test_nist_xcom_validation.py -v -s
+```
+
+Bu testler (V7 serisi, 156 test) simulasyon sonuclarini NIST XCOM referans verileriyle karsilastirir. Tum testler PASS olmalidir — herhangi bir FAIL, hesaplama motorunda regresyon oldugunu gosterir.
+
 ## Gelistirme Fazlari
 
 | Faz | Dosya | Kapsam |
 |-----|-------|--------|
 | 1 | `docs/phase-01-infrastructure.md` | Proje iskeleti, veri modelleri, birim sistemi, DB, tema |
 | 2 | `docs/phase-02-physics-engine.md` | Fizik motoru, malzeme DB, Beer-Lambert, build-up, Compton analitik |
-| 3 | `docs/phase-03-canvas-editor.md` | Canvas editoru, geometri sablonlari, katman yonetimi |
+| 3 | `docs/phase-03-canvas-editor.md` | Canvas editoru, geometri sablonlari, stage yonetimi |
 | 4 | `docs/phase-04-ray-tracing.md` | Ray-tracing simulasyonu, kalite metrikleri |
 | 5 | `docs/phase-05-visualization.md` | pyqtgraph/matplotlib grafikler |
 | 6 | `docs/phase-06-design-management.md` | Kaydet/yukle, versiyon, PDF rapor, export |

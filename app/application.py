@@ -6,11 +6,12 @@ Reference: FRD §6 — UI/UX Design.
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
+from PyQt6.QtCore import qInstallMessageHandler, QtMsgType, QSettings
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont
 
-from app.constants import APP_NAME, APP_ORGANIZATION
+from app.constants import APP_NAME, APP_ORGANIZATION, DEFAULT_LANGUAGE
+from app.core.i18n import TranslationManager
 
 
 def _qt_message_handler(msg_type, context, message):
@@ -43,6 +44,11 @@ def create_application(argv: list[str]) -> QApplication:
     font = QFont("Segoe UI", 10)
     font.setStyleHint(QFont.StyleHint.SansSerif)
     app.setFont(font)
+
+    # i18n: load saved language preference
+    settings = QSettings()
+    lang = settings.value("language", DEFAULT_LANGUAGE)
+    TranslationManager.init(lang)
 
     # Dark theme QSS
     qss_path = Path(__file__).parent / "ui" / "styles" / "dark_theme.qss"

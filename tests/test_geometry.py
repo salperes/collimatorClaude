@@ -11,10 +11,8 @@ from app.models.geometry import (
     CollimatorStage,
     CollimatorBody,
     CollimatorType,
-    CollimatorLayer,
     ApertureConfig,
     StagePurpose,
-    LayerPurpose,
     Point2D,
     SourceConfig,
     DetectorConfig,
@@ -27,8 +25,9 @@ class TestCollimatorStage:
         assert stage.outer_width == 100.0
         assert stage.outer_height == 200.0
         assert stage.purpose == StagePurpose.PRIMARY_SHIELDING
-        assert stage.gap_after == 0.0
-        assert stage.layers == []
+        assert stage.material_id == "Pb"
+        assert stage.y_position == 0.0
+        assert stage.x_offset == 0.0
         assert stage.name == ""
         assert stage.order == 0
         assert stage.id  # non-empty UUID
@@ -40,18 +39,12 @@ class TestCollimatorStage:
             purpose=StagePurpose.FAN_DEFINITION,
             outer_width=80.0,
             outer_height=60.0,
-            gap_after=20.0,
+            y_position=155.0,
         )
         assert stage.name == "Fan"
         assert stage.order == 1
         assert stage.purpose == StagePurpose.FAN_DEFINITION
-        assert stage.gap_after == 20.0
-
-    def test_stage_with_layers(self):
-        layer = CollimatorLayer(material_id="Pb", thickness=50.0, order=0)
-        stage = CollimatorStage(name="Primary", layers=[layer])
-        assert len(stage.layers) == 1
-        assert stage.layers[0].material_id == "Pb"
+        assert stage.y_position == 155.0
 
 
 class TestCollimatorBodyAlias:
@@ -95,19 +88,19 @@ class TestMultiStageGeometry:
                     name="Internal", order=0,
                     purpose=StagePurpose.PRIMARY_SHIELDING,
                     outer_width=120.0, outer_height=100.0,
-                    gap_after=30.0,
+                    y_position=25.0,
                 ),
                 CollimatorStage(
                     name="Fan", order=1,
                     purpose=StagePurpose.FAN_DEFINITION,
                     outer_width=80.0, outer_height=60.0,
-                    gap_after=20.0,
+                    y_position=155.0,
                 ),
                 CollimatorStage(
                     name="Penumbra", order=2,
                     purpose=StagePurpose.PENUMBRA_TRIMMER,
                     outer_width=60.0, outer_height=40.0,
-                    gap_after=0.0,
+                    y_position=235.0,
                 ),
             ],
         )
@@ -141,18 +134,12 @@ class TestMultiStageGeometry:
         assert g.stages[1].aperture.fan_slit_width == 2.0
         assert g.stages[2].aperture.fan_slit_width == 1.5
 
-    def test_each_stage_independent_layers(self):
+    def test_each_stage_independent_material(self):
         g = self._make_3stage()
-        g.stages[0].layers = [
-            CollimatorLayer(material_id="Pb", thickness=50.0),
-        ]
-        g.stages[1].layers = [
-            CollimatorLayer(material_id="W", thickness=30.0),
-        ]
-        assert len(g.stages[0].layers) == 1
-        assert len(g.stages[1].layers) == 1
-        assert g.stages[0].layers[0].material_id == "Pb"
-        assert g.stages[1].layers[0].material_id == "W"
+        g.stages[0].material_id = "Pb"
+        g.stages[1].material_id = "W"
+        assert g.stages[0].material_id == "Pb"
+        assert g.stages[1].material_id == "W"
 
 
 class TestStagePurposeEnum:
@@ -174,9 +161,9 @@ class TestEdgeCases:
         body = g.body
         assert isinstance(body, CollimatorStage)
 
-    def test_single_stage_gap_after_ignored(self):
+    def test_single_stage_total_height_explicit(self):
         g = CollimatorGeometry(
-            stages=[CollimatorStage(outer_height=100.0, gap_after=999.0)]
+            stages=[CollimatorStage(outer_height=100.0, y_position=50.0)]
         )
-        # Single stage: gap_after should not contribute to total_height
+        # total_height = max(y+h) - min(y) = (50+100) - 50 = 100
         assert g.total_height == 100.0

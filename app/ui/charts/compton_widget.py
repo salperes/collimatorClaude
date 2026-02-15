@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from app.core.compton_engine import ComptonEngine
+from app.core.i18n import t
 from app.core.units import rad_to_deg
 from app.ui.charts.base_chart import BaseChart
 from app.ui.styles.colors import (
@@ -62,7 +63,7 @@ class ComptonWidget(QWidget):
         ctrl_layout = QHBoxLayout()
         ctrl_layout.setSpacing(4)
 
-        self._energy_label = QLabel(f"Enerji: {self._energy:.0f} keV")
+        self._energy_label = QLabel(t("charts.energy_label", "Energy: {energy} keV").format(energy=f"{self._energy:.0f}"))
         self._energy_label.setStyleSheet(
             "color: #B0BEC5; font-size: 9pt; padding: 4px;"
         )
@@ -93,26 +94,26 @@ class ComptonWidget(QWidget):
 
         # Sub-tab 1: Klein-Nishina polar plot (matplotlib)
         self._kn_chart = KleinNishinaChart(compton_engine)
-        self._tabs.addTab(self._kn_chart, "Klein-Nishina")
+        self._tabs.addTab(self._kn_chart, t("charts.kn_tab", "Klein-Nishina"))
 
         # Sub-tab 2: Scattered energy spectrum (pyqtgraph)
         self._spectrum_chart = ComptonEnergyChart(compton_engine)
-        self._tabs.addTab(self._spectrum_chart, "Enerji Spektrumu")
+        self._tabs.addTab(self._spectrum_chart, t("charts.energy_spectrum_tab", "Energy Spectrum"))
 
         # Sub-tab 3: Angle vs energy map (pyqtgraph)
         self._angle_chart = AngleEnergyChart(compton_engine)
-        self._tabs.addTab(self._angle_chart, "Aci-Enerji")
+        self._tabs.addTab(self._angle_chart, t("charts.angle_energy_tab", "Angle-Energy"))
 
         # Sub-tab 4: Material Compton fractions (G-17)
         if material_service is not None:
             self._fractions_chart = ComptonFractionsChart(material_service)
-            self._tabs.addTab(self._fractions_chart, "Compton Oranlari")
+            self._tabs.addTab(self._fractions_chart, t("charts.compton_ratios_tab", "Compton Ratios"))
 
         self._update_all()
 
     def _on_slider_changed(self, value: int) -> None:
         self._energy = float(value)
-        self._energy_label.setText(f"Enerji: {self._energy:.0f} keV")
+        self._energy_label.setText(t("charts.energy_label", "Energy: {energy} keV").format(energy=f"{self._energy:.0f}"))
         self._update_all()
 
     def _apply_preset(self, energy_keV: float) -> None:
@@ -124,7 +125,7 @@ class ComptonWidget(QWidget):
         self._slider.setValue(int(energy_keV))
         self._slider.blockSignals(False)
         self._energy = energy_keV
-        self._energy_label.setText(f"Enerji: {energy_keV:.0f} keV")
+        self._energy_label.setText(t("charts.energy_label", "Energy: {energy} keV").format(energy=f"{energy_keV:.0f}"))
         self._update_all()
 
     def _update_all(self) -> None:
@@ -166,7 +167,7 @@ class KleinNishinaChart(QWidget):
         layout.addWidget(self._sigma_label)
 
         # Lazy canvas creation
-        self._placeholder = QLabel("Klein-Nishina polar grafigi yukleniyor...")
+        self._placeholder = QLabel(t("charts.kn_loading", "Loading Klein-Nishina polar chart..."))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setStyleSheet("color: #64748B; font-size: 10pt;")
         layout.addWidget(self._placeholder, stretch=1)
@@ -275,9 +276,9 @@ class ComptonEnergyChart(BaseChart):
         parent: QWidget | None = None,
     ):
         super().__init__(
-            title="Sacilmis Foton Enerji Spektrumu",
-            x_label="Enerji [keV]",
-            y_label="Olasilik Yogunlugu",
+            title=t("charts.scattered_energy_spectrum", "Scattered Photon Energy Spectrum"),
+            x_label=t("charts.energy_axis", "Energy [keV]"),
+            y_label=t("charts.probability_density", "Probability Density"),
             parent=parent,
         )
         self._engine = compton_engine
@@ -303,7 +304,7 @@ class ComptonEnergyChart(BaseChart):
         self._edge_line = self.add_infinite_line(
             pos=e_min, angle=90, color=WARNING,
             style=Qt.PenStyle.DashLine,
-            label=f"Compton Edge {e_min:.1f} keV",
+            label=t("charts.compton_edge", "Compton Edge {energy} keV").format(energy=f"{e_min:.1f}"),
         )
 
 
@@ -335,9 +336,9 @@ class AngleEnergyChart(QWidget):
 
         # Primary chart for scattered energy
         self._chart = BaseChart(
-            title="Aci vs Enerji",
-            x_label="Sacilma Acisi [derece]",
-            y_label="Enerji [keV]",
+            title=t("charts.angle_vs_energy", "Angle vs Energy"),
+            x_label=t("charts.scattering_angle", "Scattering Angle [degrees]"),
+            y_label=t("charts.energy_axis", "Energy [keV]"),
         )
         self._chart.enable_crosshair()
         layout.addWidget(self._chart)
@@ -355,13 +356,13 @@ class AngleEnergyChart(QWidget):
         # Scattered photon energy (primary)
         self._chart.add_curve(
             angles_deg, scattered,
-            name="E' (sacilmis foton)", color=ACCENT, width=2,
+            name=t("charts.scattered_photon", "E' (scattered photon)"), color=ACCENT, width=2,
         )
 
         # Recoil electron energy (secondary)
         self._chart.add_curve(
             angles_deg, recoil,
-            name="T (geri sekme elektron)", color=ERROR, width=2,
+            name=t("charts.recoil_electron", "T (recoil electron)"), color=ERROR, width=2,
         )
 
         # G-16: Δλ info at key angles
@@ -396,9 +397,9 @@ class ComptonFractionsChart(BaseChart):
         parent: QWidget | None = None,
     ):
         super().__init__(
-            title="Compton / Toplam Oran",
-            x_label="Enerji [keV]",
-            y_label="Compton Orani",
+            title=t("charts.compton_ratio_title", "Compton / Total Ratio"),
+            x_label=t("charts.energy_axis", "Energy [keV]"),
+            y_label=t("charts.compton_ratio_axis", "Compton Ratio"),
             log_x=True,
             parent=parent,
         )

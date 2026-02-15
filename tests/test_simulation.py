@@ -21,10 +21,10 @@ from app.core.units import mm_to_cm
 from app.models.geometry import (
     ApertureConfig,
     CollimatorGeometry,
-    CollimatorLayer,
     CollimatorStage,
     CollimatorType,
     DetectorConfig,
+    FocalSpotDistribution,
     Point2D,
     SourceConfig,
 )
@@ -81,20 +81,20 @@ def _slit_geometry(
 ) -> CollimatorGeometry:
     """Single-stage slit collimator.
 
-    If outer_width_mm is None, auto-calculated so layers fill the body.
+    If outer_width_mm is None, auto-calculated so wall fills the body.
     """
     if outer_width_mm is None:
         outer_width_mm = slit_width_mm + 2.0 * thickness_mm
-    layer = CollimatorLayer(material_id=material, thickness=thickness_mm)
     stage = CollimatorStage(
         outer_width=outer_width_mm,
         outer_height=outer_height_mm,
         aperture=ApertureConfig(slit_width=slit_width_mm),
-        layers=[layer],
+        material_id=material,
+        y_position=-outer_height_mm / 2.0,
     )
     return CollimatorGeometry(
         type=CollimatorType.SLIT,
-        source=SourceConfig(position=Point2D(0, source_y_mm)),
+        source=SourceConfig(position=Point2D(0, source_y_mm), focal_spot_size=0.0),
         stages=[stage],
         detector=DetectorConfig(position=Point2D(0, detector_y_mm)),
     )
@@ -108,19 +108,19 @@ def _pencil_geometry(
 ) -> CollimatorGeometry:
     """Single-stage pencil-beam collimator.
 
-    outer_width is auto-calculated so layers fill the body exactly.
+    outer_width is auto-calculated so wall fills the body exactly.
     """
     outer_width_mm = diameter_mm + 2.0 * thickness_mm
-    layer = CollimatorLayer(material_id=material, thickness=thickness_mm)
     stage = CollimatorStage(
         outer_width=outer_width_mm,
         outer_height=outer_height_mm,
         aperture=ApertureConfig(pencil_diameter=diameter_mm),
-        layers=[layer],
+        material_id=material,
+        y_position=-outer_height_mm / 2.0,
     )
     return CollimatorGeometry(
         type=CollimatorType.PENCIL_BEAM,
-        source=SourceConfig(position=Point2D(0, -500)),
+        source=SourceConfig(position=Point2D(0, -500), focal_spot_size=0.0),
         stages=[stage],
         detector=DetectorConfig(position=Point2D(0, 500)),
     )
@@ -135,16 +135,16 @@ def _fan_geometry(
     outer_height_mm: float = 200.0,
 ) -> CollimatorGeometry:
     """Single-stage fan-beam collimator."""
-    layer = CollimatorLayer(material_id=material, thickness=thickness_mm)
     stage = CollimatorStage(
         outer_width=outer_width_mm,
         outer_height=outer_height_mm,
         aperture=ApertureConfig(fan_angle=fan_angle_deg, fan_slit_width=slit_width_mm),
-        layers=[layer],
+        material_id=material,
+        y_position=-outer_height_mm / 2.0,
     )
     return CollimatorGeometry(
         type=CollimatorType.FAN_BEAM,
-        source=SourceConfig(position=Point2D(0, -500)),
+        source=SourceConfig(position=Point2D(0, -500), focal_spot_size=0.0),
         stages=[stage],
         detector=DetectorConfig(position=Point2D(0, 500)),
     )
@@ -271,29 +271,29 @@ class TestBM10_5_ClosedAperture:
         assert float(np.max(result.beam_profile.intensities)) < 0.1
 
 
-# ── BM-10.6: No layers → full transmission ──
+# ── BM-10.6: No shielding → full transmission ──
 
 
 class TestBM10_6_NoLayers:
-    """BM-10.6: No shielding layers → full transmission."""
+    """BM-10.6: Aperture fills entire body → full transmission."""
 
-    def test_no_layers_full_transmission(self, beam_sim_no_buildup):
-        """Stage with no layers → T ≈ 1.0 for all rays."""
+    def test_full_aperture_transmission(self, beam_sim_no_buildup):
+        """Stage where aperture = outer_width → T ≈ 1.0 for all rays."""
         stage = CollimatorStage(
             outer_width=200.0, outer_height=200.0,
-            aperture=ApertureConfig(slit_width=5.0),
-            layers=[],
+            aperture=ApertureConfig(slit_width=200.0),
+            y_position=-100.0,
         )
         geo = CollimatorGeometry(
             type=CollimatorType.SLIT,
-            source=SourceConfig(position=Point2D(0, -500)),
+            source=SourceConfig(position=Point2D(0, -500), focal_spot_size=0.0),
             stages=[stage],
             detector=DetectorConfig(position=Point2D(0, 500)),
         )
         result = beam_sim_no_buildup.calculate_beam_profile(
             geo, energy_keV=1000, num_rays=200, include_buildup=False,
         )
-        # All rays should pass (either through aperture or empty body)
+        # All rays should pass through the wide-open aperture
         assert float(np.min(result.beam_profile.intensities)) > 0.99
 
 
@@ -311,21 +311,22 @@ class TestBM10_7_MultiStage:
             outer_width_mm=105.0,  # 5 + 2*50 = 105
         )
 
-        # Two-stage: 50mm Pb + 30mm W with 20mm gap (layers fill bodies)
+        # Two-stage: Pb 105mm-wide + W 65mm-wide with 20mm gap
         stage1 = CollimatorStage(
             outer_width=105, outer_height=100,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[CollimatorLayer(material_id="Pb", thickness=50.0)],
-            gap_after=20.0,
+            material_id="Pb",
+            y_position=-90.0,
         )
         stage2 = CollimatorStage(
             outer_width=65, outer_height=60,
             aperture=ApertureConfig(slit_width=5.0),
-            layers=[CollimatorLayer(material_id="W", thickness=30.0)],
+            material_id="W",
+            y_position=30.0,  # 20mm gap after stage1
         )
         geo_multi = CollimatorGeometry(
             type=CollimatorType.SLIT,
-            source=SourceConfig(position=Point2D(0, -500)),
+            source=SourceConfig(position=Point2D(0, -500), focal_spot_size=0.0),
             stages=[stage1, stage2],
             detector=DetectorConfig(position=Point2D(0, 500)),
         )
@@ -492,3 +493,138 @@ class TestResultStructure:
         )
         assert len(calls) > 0
         assert calls[-1] == 100
+
+
+# ── BM-10.9: Focal spot PSF blur ──
+
+
+def _slit_geometry_with_focal_spot(
+    focal_spot_mm: float = 1.0,
+    distribution: FocalSpotDistribution = FocalSpotDistribution.UNIFORM,
+    slit_width_mm: float = 5.0,
+    thickness_mm: float = 100.0,
+    material: str = "Pb",
+) -> CollimatorGeometry:
+    """Single-stage slit collimator with explicit focal spot settings."""
+    outer_width_mm = slit_width_mm + 2.0 * thickness_mm
+    stage = CollimatorStage(
+        outer_width=outer_width_mm,
+        outer_height=200.0,
+        aperture=ApertureConfig(slit_width=slit_width_mm),
+        material_id=material,
+        y_position=-100.0,
+    )
+    return CollimatorGeometry(
+        type=CollimatorType.SLIT,
+        source=SourceConfig(
+            position=Point2D(0, -500),
+            focal_spot_size=focal_spot_mm,
+            focal_spot_distribution=distribution,
+        ),
+        stages=[stage],
+        detector=DetectorConfig(position=Point2D(0, 500)),
+    )
+
+
+class TestBM10_9_FocalSpotPSF:
+    """BM-10.9: Focal spot PSF blur tests."""
+
+    @pytest.mark.benchmark
+    def test_focal_spot_zero_no_blur(self, beam_sim_no_buildup):
+        """focal_spot_size=0 produces same profile as point source (no blur)."""
+        geo_point = _slit_geometry(slit_width_mm=5.0, thickness_mm=100.0)
+        geo_zero = _slit_geometry_with_focal_spot(focal_spot_mm=0.0)
+
+        r_point = beam_sim_no_buildup.calculate_beam_profile(
+            geo_point, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+        r_zero = beam_sim_no_buildup.calculate_beam_profile(
+            geo_zero, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+
+        # Identical profiles — no PSF applied
+        np.testing.assert_allclose(
+            r_point.beam_profile.intensities,
+            r_zero.beam_profile.intensities,
+            atol=1e-10,
+        )
+
+    @pytest.mark.benchmark
+    def test_focal_spot_gaussian_blur(self, beam_sim_no_buildup):
+        """2mm Gaussian focal spot softens beam edges (wider penumbra)."""
+        geo_point = _slit_geometry(slit_width_mm=5.0, thickness_mm=100.0)
+        geo_gauss = _slit_geometry_with_focal_spot(
+            focal_spot_mm=2.0,
+            distribution=FocalSpotDistribution.GAUSSIAN,
+        )
+
+        r_point = beam_sim_no_buildup.calculate_beam_profile(
+            geo_point, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+        r_gauss = beam_sim_no_buildup.calculate_beam_profile(
+            geo_gauss, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+
+        # Penumbra should be wider with focal spot blur
+        assert r_gauss.quality_metrics.penumbra_max_mm > r_point.quality_metrics.penumbra_max_mm
+
+    @pytest.mark.benchmark
+    def test_focal_spot_uniform_blur(self, beam_sim_no_buildup):
+        """2mm Uniform focal spot softens beam edges (wider penumbra)."""
+        geo_point = _slit_geometry(slit_width_mm=5.0, thickness_mm=100.0)
+        geo_unif = _slit_geometry_with_focal_spot(
+            focal_spot_mm=2.0,
+            distribution=FocalSpotDistribution.UNIFORM,
+        )
+
+        r_point = beam_sim_no_buildup.calculate_beam_profile(
+            geo_point, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+        r_unif = beam_sim_no_buildup.calculate_beam_profile(
+            geo_unif, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+
+        # Penumbra should be wider with focal spot blur
+        assert r_unif.quality_metrics.penumbra_max_mm > r_point.quality_metrics.penumbra_max_mm
+
+    @pytest.mark.benchmark
+    def test_focal_spot_larger_wider(self, beam_sim_no_buildup):
+        """3mm focal spot produces wider penumbra than 1mm."""
+        geo_1mm = _slit_geometry_with_focal_spot(focal_spot_mm=1.0)
+        geo_3mm = _slit_geometry_with_focal_spot(focal_spot_mm=3.0)
+
+        r_1mm = beam_sim_no_buildup.calculate_beam_profile(
+            geo_1mm, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+        r_3mm = beam_sim_no_buildup.calculate_beam_profile(
+            geo_3mm, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+
+        # Larger focal spot → wider penumbra
+        assert r_3mm.quality_metrics.penumbra_max_mm > r_1mm.quality_metrics.penumbra_max_mm
+
+    @pytest.mark.benchmark
+    def test_focal_spot_preserves_area(self, beam_sim_no_buildup):
+        """PSF convolution preserves total integrated intensity."""
+        geo_point = _slit_geometry(slit_width_mm=5.0, thickness_mm=100.0)
+        geo_blur = _slit_geometry_with_focal_spot(
+            focal_spot_mm=2.0,
+            distribution=FocalSpotDistribution.GAUSSIAN,
+        )
+
+        r_point = beam_sim_no_buildup.calculate_beam_profile(
+            geo_point, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+        r_blur = beam_sim_no_buildup.calculate_beam_profile(
+            geo_blur, energy_keV=1000, num_rays=500, include_buildup=False,
+        )
+
+        # Trapezoidal integration — total area should be preserved within 5%
+        area_point = float(np.trapezoid(r_point.beam_profile.intensities, r_point.beam_profile.positions_mm))
+        area_blur = float(np.trapezoid(r_blur.beam_profile.intensities, r_blur.beam_profile.positions_mm))
+
+        if area_point > 0:
+            ratio = area_blur / area_point
+            assert 0.95 < ratio < 1.05, (
+                f"Area ratio {ratio:.4f} outside 5% tolerance"
+            )
