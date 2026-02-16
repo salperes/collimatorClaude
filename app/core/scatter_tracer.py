@@ -368,51 +368,64 @@ class ScatterTracer:
                 [i.scattered_energy_keV for i in reaching]
             ))
 
-        # SPR computation via histogram binning
+        # SPR computation — histogram scatter + interpolated primary
         if primary_result is not None:
             prim_pos = primary_result.beam_profile.positions_mm
             prim_int = primary_result.beam_profile.intensities
 
-            if len(prim_pos) > 0:
-                n_bins = 50
-                bin_edges = np.linspace(
-                    float(np.min(prim_pos)),
-                    float(np.max(prim_pos)),
-                    n_bins + 1,
-                )
+            if len(prim_pos) > 1 and len(scatter_x_mm) > 0:
+                n_bins = 200
+                pos_min = float(np.min(prim_pos))
+                pos_max = float(np.max(prim_pos))
+                bin_edges = np.linspace(pos_min, pos_max, n_bins + 1)
                 bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+                bin_width = bin_edges[1] - bin_edges[0]
 
-                # Bin primary intensities
-                prim_binned, _ = np.histogram(
-                    prim_pos, bins=bin_edges, weights=prim_int,
-                )
+                # Primary: clean interpolation from beam profile
+                prim_at_bins = np.interp(bin_centers, prim_pos, prim_int)
 
-                # Bin scatter contributions
-                scat_binned, _ = np.histogram(
+                # Scatter: histogram + Gaussian smoothing
+                scat_hist, _ = np.histogram(
                     scatter_x_mm, bins=bin_edges, weights=weights,
                 )
-
-                # Normalize per primary ray
+                # Normalize: scatter weight per primary ray per bin
                 denom = max(num_primary_rays, 1)
-                scat_norm = scat_binned / denom
-                prim_norm = prim_binned / denom
+                scat_per_ray = scat_hist / denom
 
-                # SPR = scatter / primary (avoid division by zero)
+                # Smooth scatter to reduce Monte Carlo noise.
+                # Kernel sigma ~4 bins ≈ 2% of detector width.
+                from scipy.ndimage import gaussian_filter1d
+                sigma_bins = max(2.0, n_bins / 50.0)
+                scat_smooth = gaussian_filter1d(
+                    scat_per_ray, sigma=sigma_bins, mode="nearest",
+                )
+
+                # Primary per ray per bin (how many primary rays land
+                # in each bin × their intensity, divided by N)
+                prim_hist, _ = np.histogram(
+                    prim_pos, bins=bin_edges, weights=prim_int,
+                )
+                prim_per_ray = prim_hist / denom
+                prim_smooth = gaussian_filter1d(
+                    prim_per_ray, sigma=sigma_bins, mode="nearest",
+                )
+
+                # SPR = scatter / primary (both smoothed, same units)
                 with np.errstate(divide="ignore", invalid="ignore"):
                     spr = np.where(
-                        prim_norm > 1e-12,
-                        scat_norm / prim_norm,
+                        prim_smooth > 1e-12,
+                        scat_smooth / prim_smooth,
                         0.0,
                     )
 
                 result.spr_profile = spr
                 result.spr_positions_mm = bin_centers
 
-                # Total scatter fraction
-                total_signal = float(np.sum(prim_norm) + np.sum(scat_norm))
+                # Total scatter fraction (from raw sums, not smoothed)
+                total_scat = float(np.sum(scat_per_ray))
+                total_prim = float(np.sum(prim_per_ray))
+                total_signal = total_prim + total_scat
                 if total_signal > 0:
-                    result.total_scatter_fraction = (
-                        float(np.sum(scat_norm)) / total_signal
-                    )
+                    result.total_scatter_fraction = total_scat / total_signal
 
         return result
