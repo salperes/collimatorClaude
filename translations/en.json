@@ -230,7 +230,11 @@
     "spr_tab": "SPR Profile",
     "beam_profile_placeholder": "Click 'Simulate' to start the simulation.",
     "energy_comparison": "Energy Comparison",
-    "combined_ps": "Combined (P+S)"
+    "combined_ps": "Combined (P+S)",
+    "show_primary": "Primary",
+    "show_scatter": "Scatter",
+    "show_combined": "P+S",
+    "scatter_only": "Scatter Only"
   },
   "metrics": {
     "penumbra": "Penumbra (max)",

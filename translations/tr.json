@@ -230,7 +230,11 @@
     "spr_tab": "SPR Profili",
     "beam_profile_placeholder": "Simülasyon başlatmak için 'Simüle Et' butonuna tıklayın.",
     "energy_comparison": "Enerji Karşılaştırması",
-    "combined_ps": "Birleşik (P+S)"
+    "combined_ps": "Birleşik (P+S)",
+    "show_primary": "Ana",
+    "show_scatter": "Scatter",
+    "show_combined": "P+S",
+    "scatter_only": "Sadece Scatter"
   },
   "metrics": {
     "penumbra": "Penumbra (max)",

@@ -457,18 +457,19 @@ class MainWindow(QMainWindow):
 
     def _create_beam_profile_panel(self) -> QWidget:
         """Create the beam profile chart panel (lazy matplotlib)."""
-        from PyQt6.QtWidgets import QComboBox, QHBoxLayout
+        from PyQt6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        # Dose unit selector row
-        unit_row = QHBoxLayout()
-        unit_row.setContentsMargins(0, 0, 0, 2)
+        # Controls row: dose unit + visibility checkboxes
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setContentsMargins(0, 0, 0, 2)
+
         unit_label = QLabel(t("charts.y_axis_unit", "Y-Axis:"))
         unit_label.setStyleSheet("color: #94A3B8; font-size: 8pt;")
-        unit_row.addWidget(unit_label)
+        ctrl_row.addWidget(unit_label)
         self._combo_dose_unit = QComboBox()
         self._combo_dose_unit.setStyleSheet("font-size: 8pt;")
         self._combo_dose_unit.addItem(
@@ -486,9 +487,31 @@ class MainWindow(QMainWindow):
         self._combo_dose_unit.currentIndexChanged.connect(
             self._on_dose_unit_changed,
         )
-        unit_row.addWidget(self._combo_dose_unit)
-        unit_row.addStretch()
-        layout.addLayout(unit_row)
+        ctrl_row.addWidget(self._combo_dose_unit)
+
+        ctrl_row.addStretch()
+
+        # Curve visibility checkboxes
+        cb_style = "color: #94A3B8; font-size: 8pt;"
+        self._cb_show_primary = QCheckBox(t("charts.show_primary", "Primary"))
+        self._cb_show_primary.setStyleSheet(cb_style)
+        self._cb_show_primary.setChecked(True)
+        self._cb_show_primary.toggled.connect(self._on_beam_visibility_changed)
+        ctrl_row.addWidget(self._cb_show_primary)
+
+        self._cb_show_scatter = QCheckBox(t("charts.show_scatter", "Scatter"))
+        self._cb_show_scatter.setStyleSheet(cb_style)
+        self._cb_show_scatter.setChecked(True)
+        self._cb_show_scatter.toggled.connect(self._on_beam_visibility_changed)
+        ctrl_row.addWidget(self._cb_show_scatter)
+
+        self._cb_show_combined = QCheckBox(t("charts.show_combined", "P+S"))
+        self._cb_show_combined.setStyleSheet(cb_style)
+        self._cb_show_combined.setChecked(True)
+        self._cb_show_combined.toggled.connect(self._on_beam_visibility_changed)
+        ctrl_row.addWidget(self._cb_show_combined)
+
+        layout.addLayout(ctrl_row)
 
         self._beam_profile_placeholder = QLabel(
             t("charts.beam_profile_placeholder", "Click 'Simulate' to start the simulation.")
@@ -779,68 +802,70 @@ class MainWindow(QMainWindow):
 
         ax.set_ylabel(y_label, color="#94A3B8", fontsize=10)
 
-        ax.plot(pos, y_data, color="#3B82F6", linewidth=1.5,
-                label=t("charts.beam_profile", "Beam Profile"))
-
-        # Region fills using edge detection (skip for dB — edge thresholds are linear)
+        show_primary = self._cb_show_primary.isChecked()
         qm = result.quality_metrics
-        if qm.fwhm_mm > 0 and len(pos) > 2 and unit != DoseDisplayUnit.DB:
-            y_max_val = float(np.max(y_data))
-            if y_max_val > 1e-12:
-                find = BeamSimulation._find_edges
 
-                half_max = y_max_val / 2.0
-                fwhm_l, fwhm_r = find(pos, y_data, half_max)
-                l20, _ = find(pos, y_data, 0.2 * y_max_val)
-                l80, _ = find(pos, y_data, 0.8 * y_max_val)
-                _, r80 = find(pos, y_data, 0.8 * y_max_val)
-                _, r20 = find(pos, y_data, 0.2 * y_max_val)
+        if show_primary:
+            ax.plot(pos, y_data, color="#3B82F6", linewidth=1.5,
+                    label=t("charts.beam_profile", "Beam Profile"))
 
-                mask_useful = (pos >= fwhm_l) & (pos <= fwhm_r)
-                ax.fill_between(
-                    pos[mask_useful], 0, y_data[mask_useful],
-                    alpha=0.12, color="#3B82F6",
-                    label=f"{t('charts.useful_beam', 'Useful beam')} (FWHM={qm.fwhm_mm:.1f}mm)",
-                )
+            # Region fills using edge detection (skip for dB)
+            if qm.fwhm_mm > 0 and len(pos) > 2 and unit != DoseDisplayUnit.DB:
+                y_max_val = float(np.max(y_data))
+                if y_max_val > 1e-12:
+                    find = BeamSimulation._find_edges
 
-                mask_pen_l = (pos >= l20) & (pos <= l80)
-                if np.any(mask_pen_l):
+                    half_max = y_max_val / 2.0
+                    fwhm_l, fwhm_r = find(pos, y_data, half_max)
+                    l20, _ = find(pos, y_data, 0.2 * y_max_val)
+                    l80, _ = find(pos, y_data, 0.8 * y_max_val)
+                    _, r80 = find(pos, y_data, 0.8 * y_max_val)
+                    _, r20 = find(pos, y_data, 0.2 * y_max_val)
+
+                    mask_useful = (pos >= fwhm_l) & (pos <= fwhm_r)
                     ax.fill_between(
-                        pos[mask_pen_l], 0, y_data[mask_pen_l],
-                        alpha=0.15, color="#F59E0B",
-                    )
-                mask_pen_r = (pos >= r80) & (pos <= r20)
-                if np.any(mask_pen_r):
-                    ax.fill_between(
-                        pos[mask_pen_r], 0, y_data[mask_pen_r],
-                        alpha=0.15, color="#F59E0B",
-                        label=f"{t('charts.penumbra', 'Penumbra')} ({qm.penumbra_max_mm:.1f}mm)",
+                        pos[mask_useful], 0, y_data[mask_useful],
+                        alpha=0.12, color="#3B82F6",
+                        label=f"{t('charts.useful_beam', 'Useful beam')} (FWHM={qm.fwhm_mm:.1f}mm)",
                     )
 
-                mask_shield_l = pos < l20
-                mask_shield_r = pos > r20
-                if np.any(mask_shield_l):
-                    ax.fill_between(
-                        pos[mask_shield_l], 0, y_data[mask_shield_l],
-                        alpha=0.08, color="#EF4444",
-                    )
-                if np.any(mask_shield_r):
-                    ax.fill_between(
-                        pos[mask_shield_r], 0, y_data[mask_shield_r],
-                        alpha=0.08, color="#EF4444",
-                        label=f"{t('charts.shielding_leakage', 'Shielding leakage')} ({qm.leakage_avg_pct:.2f}%)",
-                    )
+                    mask_pen_l = (pos >= l20) & (pos <= l80)
+                    if np.any(mask_pen_l):
+                        ax.fill_between(
+                            pos[mask_pen_l], 0, y_data[mask_pen_l],
+                            alpha=0.15, color="#F59E0B",
+                        )
+                    mask_pen_r = (pos >= r80) & (pos <= r20)
+                    if np.any(mask_pen_r):
+                        ax.fill_between(
+                            pos[mask_pen_r], 0, y_data[mask_pen_r],
+                            alpha=0.15, color="#F59E0B",
+                            label=f"{t('charts.penumbra', 'Penumbra')} ({qm.penumbra_max_mm:.1f}mm)",
+                        )
 
-                ax.axhline(y=fwhm_ref, color="#F59E0B", linewidth=0.5,
-                           linestyle="--", alpha=0.5)
+                    mask_shield_l = pos < l20
+                    mask_shield_r = pos > r20
+                    if np.any(mask_shield_l):
+                        ax.fill_between(
+                            pos[mask_shield_l], 0, y_data[mask_shield_l],
+                            alpha=0.08, color="#EF4444",
+                        )
+                    if np.any(mask_shield_r):
+                        ax.fill_between(
+                            pos[mask_shield_r], 0, y_data[mask_shield_r],
+                            alpha=0.08, color="#EF4444",
+                            label=f"{t('charts.shielding_leakage', 'Shielding leakage')} ({qm.leakage_avg_pct:.2f}%)",
+                        )
 
-        if unit == DoseDisplayUnit.DB and qm.fwhm_mm > 0:
-            # dB mode: show -3 dB reference line + info in legend only
-            ax.axhline(y=-3.0, color="#F59E0B", linewidth=0.7,
-                       linestyle="--", alpha=0.6, label="-3 dB (FWHM)")
-            ax.plot([], [], " ",
-                    label=f"FWHM={qm.fwhm_mm:.1f}mm  |  "
-                          f"{t('charts.shielding_leakage', 'Leakage')}={qm.leakage_avg_pct:.2f}%")
+                    ax.axhline(y=fwhm_ref, color="#F59E0B", linewidth=0.5,
+                               linestyle="--", alpha=0.5)
+
+            if unit == DoseDisplayUnit.DB and qm.fwhm_mm > 0:
+                ax.axhline(y=-3.0, color="#F59E0B", linewidth=0.7,
+                           linestyle="--", alpha=0.6, label="-3 dB (FWHM)")
+                ax.plot([], [], " ",
+                        label=f"FWHM={qm.fwhm_mm:.1f}mm  |  "
+                              f"{t('charts.shielding_leakage', 'Leakage')}={qm.leakage_avg_pct:.2f}%")
 
         ax.legend(fontsize=9, facecolor="#1E293B", edgecolor="#475569",
                   labelcolor="#F8FAFC")
@@ -865,6 +890,14 @@ class MainWindow(QMainWindow):
 
     def _on_dose_unit_changed(self, idx: int) -> None:
         """Replot beam profile with new dose display unit."""
+        self._full_replot_beam()
+
+    def _on_beam_visibility_changed(self, _checked: bool) -> None:
+        """Replot beam profile when curve visibility checkboxes change."""
+        self._full_replot_beam()
+
+    def _full_replot_beam(self) -> None:
+        """Replot primary beam + scatter overlay respecting visibility."""
         if self._last_simulation_result is not None and self._beam_ax is not None:
             self._beam_measure_point = None
             self._beam_measure_artists.clear()
@@ -1082,8 +1115,20 @@ class MainWindow(QMainWindow):
         )
 
     def _overlay_scatter_on_beam_profile(self, scatter_result) -> None:
-        """Add scatter noise overlay to beam profile chart."""
+        """Add scatter / combined overlay to beam profile chart."""
         if self._beam_ax is None or self._last_simulation_result is None:
+            return
+
+        show_scatter = self._cb_show_scatter.isChecked()
+        show_combined = self._cb_show_combined.isChecked()
+        if not show_scatter and not show_combined:
+            # Nothing to overlay — just redraw legend
+            self._beam_ax.legend(
+                fontsize=9, facecolor="#1E293B", edgecolor="#475569",
+                labelcolor="#F8FAFC",
+            )
+            self._beam_figure.tight_layout()
+            self._beam_canvas.draw()
             return
 
         primary = self._last_simulation_result
@@ -1122,33 +1167,58 @@ class MainWindow(QMainWindow):
         combined_raw = scaled_ints + scatter_scaled
 
         ax = self._beam_ax
+        show_primary = self._cb_show_primary.isChecked()
+        spr_label = f"Scatter (SPR={scatter_result.total_scatter_fraction:.4f})"
+
         if is_db:
-            # Convert to dB for scatter overlay
             with np.errstate(divide="ignore", invalid="ignore"):
-                primary_db = np.where(ints > 1e-30, 10.0 * np.log10(np.maximum(ints, 1e-30)), -300.0)
-                combined_t = ints + spr_interp * ints  # raw transmission
-                combined_db = np.where(combined_t > 1e-30, 10.0 * np.log10(np.maximum(combined_t, 1e-30)), -300.0)
-            ax.fill_between(
-                pos, primary_db, combined_db,
-                alpha=0.25, color="#EF4444",
-                label=f"Scatter (SPR={scatter_result.total_scatter_fraction:.4f})",
-            )
-            ax.plot(
-                pos, combined_db, color="#F8FAFC", linewidth=1.0,
-                linestyle="--", alpha=0.8,
-                label=t("charts.combined_ps", "Combined (P+S)"),
-            )
+                primary_db = np.where(
+                    ints > 1e-30, 10.0 * np.log10(np.maximum(ints, 1e-30)), -300.0,
+                )
+                scatter_only_t = spr_interp * ints
+                scatter_only_db = np.where(
+                    scatter_only_t > 1e-30, 10.0 * np.log10(np.maximum(scatter_only_t, 1e-30)), -300.0,
+                )
+                combined_t = ints + spr_interp * ints
+                combined_db = np.where(
+                    combined_t > 1e-30, 10.0 * np.log10(np.maximum(combined_t, 1e-30)), -300.0,
+                )
+
+            if show_scatter and show_primary:
+                ax.fill_between(
+                    pos, primary_db, combined_db,
+                    alpha=0.25, color="#EF4444", label=spr_label,
+                )
+            if show_scatter:
+                ax.plot(
+                    pos, scatter_only_db, color="#EF4444", linewidth=1.0,
+                    linestyle=":", alpha=0.7,
+                    label=t("charts.scatter_only", "Scatter Only") if not show_primary else None,
+                )
+            if show_combined:
+                ax.plot(
+                    pos, combined_db, color="#F8FAFC", linewidth=1.0,
+                    linestyle="--", alpha=0.8,
+                    label=t("charts.combined_ps", "Combined (P+S)"),
+                )
         else:
-            ax.fill_between(
-                pos, scaled_ints, combined_raw,
-                alpha=0.25, color="#EF4444",
-                label=f"Scatter (SPR={scatter_result.total_scatter_fraction:.4f})",
-            )
-            ax.plot(
-                pos, combined_raw, color="#F8FAFC", linewidth=1.0,
-                linestyle="--", alpha=0.8,
-                label=t("charts.combined_ps", "Combined (P+S)"),
-            )
+            if show_scatter and show_primary:
+                ax.fill_between(
+                    pos, scaled_ints, combined_raw,
+                    alpha=0.25, color="#EF4444", label=spr_label,
+                )
+            if show_scatter:
+                ax.plot(
+                    pos, scatter_scaled, color="#EF4444", linewidth=1.0,
+                    linestyle=":", alpha=0.7,
+                    label=t("charts.scatter_only", "Scatter Only") if not show_primary else None,
+                )
+            if show_combined:
+                ax.plot(
+                    pos, combined_raw, color="#F8FAFC", linewidth=1.0,
+                    linestyle="--", alpha=0.8,
+                    label=t("charts.combined_ps", "Combined (P+S)"),
+                )
 
         ax.legend(
             fontsize=9, facecolor="#1E293B", edgecolor="#475569",

@@ -230,7 +230,11 @@
     "spr_tab": "SPR-Profil",
     "beam_profile_placeholder": "Klicken Sie auf 'Simulieren', um die Simulation zu starten.",
     "energy_comparison": "Energievergleich",
-    "combined_ps": "Kombiniert (P+S)"
+    "combined_ps": "Kombiniert (P+S)",
+    "show_primary": "Primär",
+    "show_scatter": "Streuung",
+    "show_combined": "P+S",
+    "scatter_only": "Nur Streuung"
   },
   "metrics": {
     "penumbra": "Halbschatten (max)",
