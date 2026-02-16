@@ -41,16 +41,14 @@ class SimulationConfig:
         num_rays: Number of rays to trace.
         include_buildup: Apply build-up factor correction.
         include_scatter: Enable scatter simulation.
-        angular_resolution: Angular step between rays [degree].
         compton_config: Compton scatter parameters.
     """
     id: str = ""
     geometry_id: str = ""
     energy_points: list[float] = field(default_factory=list)
-    num_rays: int = 360
+    num_rays: int = 5000
     include_buildup: bool = True
     include_scatter: bool = False
-    angular_resolution: float = 1.0
     compton_config: ComptonConfig = field(default_factory=ComptonConfig)
 
 

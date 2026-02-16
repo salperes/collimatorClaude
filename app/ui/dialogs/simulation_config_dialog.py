@@ -42,19 +42,9 @@ class SimulationConfigDialog(QDialog):
 
         self._spin_rays = QSpinBox()
         self._spin_rays.setRange(MIN_NUM_RAYS, MAX_NUM_RAYS)
-        self._spin_rays.setSingleStep(100)
+        self._spin_rays.setSingleStep(1000)
         self._spin_rays.setValue(cur.num_rays if cur else DEFAULT_NUM_RAYS)
         gen_form.addRow(t("dialogs.sim_config_rays", "Ray Count:"), self._spin_rays)
-
-        self._spin_resolution = QDoubleSpinBox()
-        self._spin_resolution.setRange(0.1, 10.0)
-        self._spin_resolution.setSingleStep(0.5)
-        self._spin_resolution.setDecimals(1)
-        self._spin_resolution.setSuffix("\u00B0")
-        self._spin_resolution.setValue(
-            cur.angular_resolution if cur else 1.0
-        )
-        gen_form.addRow(t("dialogs.sim_config_angular_res", "Angular Resolution:"), self._spin_resolution)
 
         self._cb_buildup = QCheckBox(t("dialogs.sim_config_include", "Include"))
         self._cb_buildup.setChecked(cur.include_buildup if cur else True)
@@ -120,7 +110,6 @@ class SimulationConfigDialog(QDialog):
         )
         return SimulationConfig(
             num_rays=self._spin_rays.value(),
-            angular_resolution=self._spin_resolution.value(),
             include_buildup=self._cb_buildup.isChecked(),
             include_scatter=self._cb_scatter.isChecked(),
             compton_config=compton_cfg,

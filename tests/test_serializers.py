@@ -592,7 +592,6 @@ class TestSimulationConfigSerialization:
             num_rays=720,
             include_buildup=True,
             include_scatter=False,
-            angular_resolution=0.5,
             compton_config=ComptonConfig(
                 enabled=True,
                 max_scatter_order=2,
@@ -612,5 +611,5 @@ class TestSimulationConfigSerialization:
         config = SimulationConfig()
         d = simulation_config_to_dict(config)
         restored = dict_to_simulation_config(d)
-        assert restored.num_rays == 360
+        assert restored.num_rays == 5000
         assert restored.include_buildup is True

@@ -89,7 +89,7 @@ class BeamSimulation:
         self,
         geometry: CollimatorGeometry,
         energy_keV: float,
-        num_rays: int = 360,
+        num_rays: int = 5000,
         include_buildup: bool = True,
         progress_callback: Callable[[int], None] | None = None,
     ) -> SimulationResult:
@@ -104,7 +104,7 @@ class BeamSimulation:
         Args:
             geometry: Collimator geometry [mm, degree].
             energy_keV: Photon energy [keV].
-            num_rays: Number of rays.
+            num_rays: Number of rays (default 5000).
             include_buildup: Apply build-up factor correction.
             progress_callback: Called with progress 0-100.
 
@@ -413,7 +413,7 @@ class BeamSimulation:
         self,
         geometry: CollimatorGeometry,
         energies_keV: list[float],
-        num_rays: int = 360,
+        num_rays: int = 5000,
         include_buildup: bool = True,
         progress_callback: Callable[[int], None] | None = None,
     ) -> dict[float, SimulationResult]:

@@ -313,10 +313,9 @@ def dict_to_simulation_config(data: dict) -> SimulationConfig:
         id=data.get("id", ""),
         geometry_id=data.get("geometry_id", ""),
         energy_points=data.get("energy_points", []),
-        num_rays=data.get("num_rays", 360),
+        num_rays=data.get("num_rays", 5000),
         include_buildup=data.get("include_buildup", True),
         include_scatter=data.get("include_scatter", False),
-        angular_resolution=data.get("angular_resolution", 1.0),
         compton_config=ComptonConfig(**{
             k: data["compton_config"][k]
             for k in data["compton_config"]
