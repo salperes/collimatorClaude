@@ -148,10 +148,10 @@ class MainWindow(QMainWindow):
         self._left_dock.setMinimumWidth(200)
 
         # Right panel — Layers + Properties + Results
-        right_scroll = QScrollArea()
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        right_scroll.setStyleSheet("QScrollArea { border: none; }")
+        self._right_scroll = QScrollArea()
+        self._right_scroll.setWidgetResizable(True)
+        self._right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._right_scroll.setStyleSheet("QScrollArea { border: none; }")
 
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
@@ -183,12 +183,12 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self._results_section)
 
         right_layout.addStretch()
-        right_scroll.setWidget(right_widget)
+        self._right_scroll.setWidget(right_widget)
 
         self._right_dock = self._create_dock(
             t("panels.layers_properties", "Layers / Properties"),
             Qt.DockWidgetArea.RightDockWidgetArea,
-            right_scroll,
+            self._right_scroll,
         )
         self._right_dock.setMinimumWidth(320)
 
@@ -212,6 +212,9 @@ class MainWindow(QMainWindow):
         )
         self._linac_warning.setVisible(False)
         self.statusBar().addPermanentWidget(self._linac_warning)
+
+        # Right-click "Show Properties" on canvas items
+        self._scene.show_properties_requested.connect(self._show_panel_for_object)
 
         # Status bar
         self.statusBar().showMessage(t("status.ready", "Ready"))
@@ -260,6 +263,37 @@ class MainWindow(QMainWindow):
             self._beam_canvas.draw()
 
         self.statusBar().showMessage(t("status.ready", "Ready"))
+
+    def _show_panel_for_object(self, object_type: str) -> None:
+        """Open and scroll to the relevant panel for a canvas object.
+
+        Args:
+            object_type: "stage", "source", "detector", or "phantom".
+        """
+        # Ensure right dock is visible
+        if not self._right_dock.isVisible():
+            self._right_dock.show()
+        self._right_dock.raise_()
+
+        # Map object type to the collapsible section to expand
+        section_map = {
+            "stage": self._layer_section,
+            "source": self._props_section,
+            "detector": self._props_section,
+            "phantom": self._phantom_section,
+        }
+        target_section = section_map.get(object_type)
+        if target_section is None:
+            return
+
+        # Expand the target section
+        target_section.expand()
+
+        # Scroll to make the section visible
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(50, lambda: self._right_scroll.ensureWidgetVisible(
+            target_section, 0, 50,
+        ))
 
     def _connect_signals(self):
         # Toolbar -> controller

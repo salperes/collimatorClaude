@@ -51,6 +51,7 @@ class CollimatorScene(QGraphicsScene):
     """
 
     stage_clicked = pyqtSignal(int)
+    show_properties_requested = pyqtSignal(str)  # "stage", "source", "detector", "phantom"
 
     def __init__(
         self,
@@ -627,6 +628,11 @@ class CollimatorScene(QGraphicsScene):
         geo = self._controller.geometry
         menu = QMenu()
 
+        # Show properties
+        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+
+        menu.addSeparator()
+
         # Add stage after this one
         act_add = menu.addAction("Stage Ekle (Sonrasina)")
         act_add.setEnabled(len(geo.stages) < MAX_STAGES)
@@ -655,7 +661,10 @@ class CollimatorScene(QGraphicsScene):
         act_unlock_all = menu.addAction("Tum Kilitleri Ac")
 
         chosen = menu.exec(event.screenPos())
-        if chosen is act_add:
+        if chosen is act_props:
+            self._controller.select_stage(idx)
+            self.show_properties_requested.emit("stage")
+        elif chosen is act_add:
             self._controller.add_stage(after_index=idx)
         elif chosen is act_del:
             self._controller.remove_stage(idx)
@@ -676,6 +685,11 @@ class CollimatorScene(QGraphicsScene):
         idx = phantom_item.phantom_index
         menu = QMenu()
 
+        # Show properties
+        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+
+        menu.addSeparator()
+
         act_del = menu.addAction("Phantom Sil")
 
         menu.addSeparator()
@@ -691,7 +705,9 @@ class CollimatorScene(QGraphicsScene):
         )
 
         chosen = menu.exec(event.screenPos())
-        if chosen is act_del:
+        if chosen is act_props:
+            self.show_properties_requested.emit("phantom")
+        elif chosen is act_del:
             self._controller.remove_phantom(idx)
         elif chosen is act_lock:
             phantom_item.set_locked(not locked)
@@ -702,6 +718,12 @@ class CollimatorScene(QGraphicsScene):
 
     def _show_source_menu(self, event: QGraphicsSceneContextMenuEvent) -> None:
         menu = QMenu()
+
+        # Show properties
+        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+
+        menu.addSeparator()
+
         locked = self._source_item.locked
         act_lock = menu.addAction(
             "Kilidi Ac" if locked else "Pozisyonu Kilitle"
@@ -713,7 +735,9 @@ class CollimatorScene(QGraphicsScene):
         )
 
         chosen = menu.exec(event.screenPos())
-        if chosen is act_lock:
+        if chosen is act_props:
+            self.show_properties_requested.emit("source")
+        elif chosen is act_lock:
             self._source_item.set_locked(not locked)
         elif chosen is act_x_lock:
             self._source_item.set_x_locked(not x_locked)
@@ -722,6 +746,12 @@ class CollimatorScene(QGraphicsScene):
 
     def _show_detector_menu(self, event: QGraphicsSceneContextMenuEvent) -> None:
         menu = QMenu()
+
+        # Show properties
+        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+
+        menu.addSeparator()
+
         locked = self._detector_item.locked
         act_lock = menu.addAction(
             "Kilidi Ac" if locked else "Pozisyonu Kilitle"
@@ -733,7 +763,9 @@ class CollimatorScene(QGraphicsScene):
         )
 
         chosen = menu.exec(event.screenPos())
-        if chosen is act_lock:
+        if chosen is act_props:
+            self.show_properties_requested.emit("detector")
+        elif chosen is act_lock:
             self._detector_item.set_locked(not locked)
         elif chosen is act_x_lock:
             self._detector_item.set_x_locked(not x_locked)
