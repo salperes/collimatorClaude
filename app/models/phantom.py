@@ -84,7 +84,7 @@ class LinePairPhantom:
         num_cycles: Number of bar-space cycles.
     """
     config: PhantomConfig = field(default_factory=lambda: PhantomConfig(
-        type=PhantomType.LINE_PAIR, name="Cizgi Cifti 1 lp/mm",
+        type=PhantomType.LINE_PAIR, name="Çizgi Çifti 1 lp/mm",
     ))
     frequency: float = 1.0
     bar_thickness: float = 1.0

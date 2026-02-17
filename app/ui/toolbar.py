@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSignalBlocker
+from PyQt6.QtGui import QAction
 
 from app.core.i18n import t, TranslationManager
 from app.core.spectrum_models import effective_energy_kVp
@@ -62,10 +63,19 @@ class MainToolBar(QToolBar):
     export_requested = pyqtSignal()
     version_history_requested = pyqtSignal()
 
+    # Edit menu signals
+    undo_requested = pyqtSignal()
+    redo_requested = pyqtSignal()
+    cut_requested = pyqtSignal()
+    copy_requested = pyqtSignal()
+    paste_requested = pyqtSignal()
+    delete_requested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__("Main Toolbar", parent)
         self.setMovable(False)
         self._energy_mode: str = "kVp"  # "kVp" or "MeV"
+        self._computed_eff_keV: float | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -89,6 +99,45 @@ class MainToolBar(QToolBar):
         self._btn_file.setMenu(self._file_menu)
         self._btn_file.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.addWidget(self._btn_file)
+
+        # Edit button with menu
+        self._btn_edit = QToolButton()
+        self._edit_menu = QMenu(self)
+
+        self._action_undo = self._edit_menu.addAction("")
+        self._action_undo.setShortcut("Ctrl+U")
+        self._action_undo.triggered.connect(self.undo_requested.emit)
+        self._action_undo.setEnabled(False)
+
+        self._action_redo = self._edit_menu.addAction("")
+        self._action_redo.setShortcut("Ctrl+Y")
+        self._action_redo.triggered.connect(self.redo_requested.emit)
+        self._action_redo.setEnabled(False)
+
+        self._edit_menu.addSeparator()
+
+        self._action_cut = self._edit_menu.addAction("")
+        self._action_cut.setShortcut("Ctrl+X")
+        self._action_cut.triggered.connect(self.cut_requested.emit)
+
+        self._action_copy = self._edit_menu.addAction("")
+        self._action_copy.setShortcut("Ctrl+C")
+        self._action_copy.triggered.connect(self.copy_requested.emit)
+
+        self._action_paste = self._edit_menu.addAction("")
+        self._action_paste.setShortcut("Ctrl+V")
+        self._action_paste.triggered.connect(self.paste_requested.emit)
+        self._action_paste.setEnabled(False)
+
+        self._edit_menu.addSeparator()
+
+        self._action_delete = self._edit_menu.addAction("")
+        self._action_delete.setShortcut("Del")
+        self._action_delete.triggered.connect(self.delete_requested.emit)
+
+        self._btn_edit.setMenu(self._edit_menu)
+        self._btn_edit.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.addWidget(self._btn_edit)
 
         self.addSeparator()
 
@@ -216,6 +265,32 @@ class MainToolBar(QToolBar):
         self._btn_scatter.toggled.connect(self._on_scatter_toggled)
         self.addWidget(self._btn_scatter)
 
+        # Isodose toggle button with options menu
+        self._btn_isodose = QToolButton()
+        self._btn_isodose.setCheckable(True)
+        self._btn_isodose.setChecked(False)
+        self._btn_isodose.toggled.connect(self._on_isodose_toggled)
+
+        # Isodose options dropdown menu
+        self._isodose_menu = QMenu(self._btn_isodose)
+        self._act_isodose_air = QAction(
+            t("isodose.include_air", "Air Attenuation"), self
+        )
+        self._act_isodose_air.setCheckable(True)
+        self._act_isodose_air.setChecked(True)
+        self._isodose_menu.addAction(self._act_isodose_air)
+
+        self._act_isodose_inv_sq = QAction(
+            t("isodose.include_inverse_sq", "1/r\u00b2 Inverse Square"), self
+        )
+        self._act_isodose_inv_sq.setCheckable(True)
+        self._act_isodose_inv_sq.setChecked(True)
+        self._isodose_menu.addAction(self._act_isodose_inv_sq)
+
+        self._btn_isodose.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._btn_isodose.setMenu(self._isodose_menu)
+        self.addWidget(self._btn_isodose)
+
         # Threshold settings button (G-10)
         self._btn_thresholds = QToolButton()
         self._btn_thresholds.clicked.connect(self.threshold_edit_requested.emit)
@@ -282,6 +357,16 @@ class MainToolBar(QToolBar):
         self._action_version_history.setText(t("toolbar.version_history", "Version History..."))
         self._action_export.setText(t("toolbar.export", "Export..."))
 
+        # Edit button + menu
+        self._btn_edit.setText(t("toolbar.edit", "Edit"))
+        self._btn_edit.setToolTip(t("toolbar.edit_tooltip", "Edit operations"))
+        self._action_undo.setText(t("toolbar.undo", "Undo"))
+        self._action_redo.setText(t("toolbar.redo", "Redo"))
+        self._action_cut.setText(t("toolbar.cut", "Cut"))
+        self._action_copy.setText(t("toolbar.copy", "Copy"))
+        self._action_paste.setText(t("toolbar.paste", "Paste"))
+        self._action_delete.setText(t("toolbar.delete", "Delete"))
+
         # Collimator type button + menu
         self._btn_type.setText(t("toolbar.collimator_type", "Collimator Type"))
         self._btn_type.setToolTip(t("toolbar.collimator_type_tooltip", "Select collimator type"))
@@ -336,6 +421,10 @@ class MainToolBar(QToolBar):
         # Scatter
         self._btn_scatter.setText(f"Scatter: {'ON' if self._btn_scatter.isChecked() else 'OFF'}")
         self._btn_scatter.setToolTip(t("toolbar.scatter_tooltip", "Include Compton scatter simulation"))
+        self._btn_isodose.setText(f"Isodose: {'ON' if self._btn_isodose.isChecked() else 'OFF'}")
+        self._btn_isodose.setToolTip(t("toolbar.isodose_tooltip", "Compute isodose map after simulation"))
+        self._act_isodose_air.setText(t("isodose.include_air", "Air Attenuation"))
+        self._act_isodose_inv_sq.setText(t("isodose.include_inverse_sq", "1/r\u00b2 Inverse Square"))
 
         # Thresholds
         self._btn_thresholds.setText(t("toolbar.thresholds", "Thresholds"))
@@ -417,6 +506,7 @@ class MainToolBar(QToolBar):
             self._slider_energy.setValue(int(value * 1000))
 
     def _on_energy_changed(self, value: int) -> None:
+        self._computed_eff_keV = None  # invalidate until recomputed
         self._update_energy_label(value)
         keV = self.get_energy_keV()
         self.energy_changed.emit(keV)
@@ -425,13 +515,22 @@ class MainToolBar(QToolBar):
 
     def _on_tube_param_changed(self) -> None:
         """Target or window type changed — update label and emit signal."""
+        self._computed_eff_keV = None  # invalidate until recomputed
         self._update_energy_label(self._slider_energy.value())
         self.tube_config_changed.emit()
+
+    def set_effective_energy(self, eff_keV: float) -> None:
+        """Set computed effective energy from full spectrum model."""
+        self._computed_eff_keV = eff_keV
+        self._update_energy_label(self._slider_energy.value())
 
     def _update_energy_label(self, slider_value: int) -> None:
         """Update the energy label based on mode and slider value."""
         if self._energy_mode == "kVp":
-            eff = effective_energy_kVp(slider_value)
+            if self._computed_eff_keV is not None:
+                eff = self._computed_eff_keV
+            else:
+                eff = effective_energy_kVp(slider_value)
             target = self._combo_target.currentData()
             self._lbl_energy_value.setText(
                 f"{slider_value} kVp (eff. {eff:.0f} keV, {target})"
@@ -457,6 +556,9 @@ class MainToolBar(QToolBar):
 
     def _on_scatter_toggled(self, checked: bool) -> None:
         self._btn_scatter.setText(f"Scatter: {'ON' if checked else 'OFF'}")
+
+    def _on_isodose_toggled(self, checked: bool) -> None:
+        self._btn_isodose.setText(f"Isodose: {'ON' if checked else 'OFF'}")
 
     # ── Properties ───────────────────────────────────────────────────
 
@@ -484,18 +586,53 @@ class MainToolBar(QToolBar):
         return self._btn_scatter
 
     @property
+    def isodose_button(self) -> QToolButton:
+        """Access the isodose toggle button."""
+        return self._btn_isodose
+
+    @property
+    def isodose_include_air(self) -> bool:
+        """Whether air attenuation is enabled for isodose."""
+        return self._act_isodose_air.isChecked()
+
+    @property
+    def isodose_include_inverse_sq(self) -> bool:
+        """Whether 1/r^2 is enabled for isodose."""
+        return self._act_isodose_inv_sq.isChecked()
+
+    @property
     def recent_menu(self) -> QMenu:
         """Access the recent designs submenu."""
         return self._recent_menu
 
+    # -- Edit menu enable/disable API --
+
+    def set_undo_enabled(self, enabled: bool) -> None:
+        self._action_undo.setEnabled(enabled)
+
+    def set_redo_enabled(self, enabled: bool) -> None:
+        self._action_redo.setEnabled(enabled)
+
+    def set_paste_enabled(self, enabled: bool) -> None:
+        self._action_paste.setEnabled(enabled)
+
+    def set_edit_actions_enabled(self, enabled: bool) -> None:
+        """Enable/disable cut, copy, delete (based on editable selection)."""
+        self._action_cut.setEnabled(enabled)
+        self._action_copy.setEnabled(enabled)
+        self._action_delete.setEnabled(enabled)
+
     def get_energy_keV(self) -> float:
         """Current effective energy [keV].
 
-        In kVp mode: returns effective energy (kVp/3).
+        In kVp mode: returns computed effective energy from full spectrum
+        model if available, otherwise falls back to kVp/3 approximation.
         In MeV mode: returns slider value directly in keV.
         """
         val = self._slider_energy.value()
         if self._energy_mode == "kVp":
+            if self._computed_eff_keV is not None:
+                return self._computed_eff_keV
             return effective_energy_kVp(val)
         return float(val)
 

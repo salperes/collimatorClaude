@@ -7,10 +7,12 @@ Reference: Phase-03.5 spec — Phantom Panel.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QSpinBox, QComboBox, QCheckBox, QFrame, QListWidget,
     QListWidgetItem, QPushButton,
 )
+
+from app.ui.widgets.smart_spinbox import SmartDoubleSpinBox
 from PyQt6.QtCore import QSignalBlocker, Qt
 
 from app.constants import MATERIAL_IDS
@@ -83,12 +85,12 @@ class PhantomPanel(QWidget):
 
         # Y Position
         row_y = QHBoxLayout()
-        self._lbl_y_position = self._prop_label(t("phantom.y_position", "Y Position:"))
+        self._lbl_y_position = self._prop_label(t("phantom.y_position_mm", "Y Pos (mm):"))
         row_y.addWidget(self._lbl_y_position)
-        self._spin_y = QDoubleSpinBox()
+        self._spin_y = SmartDoubleSpinBox()
         self._spin_y.setRange(0, 5000)
-        self._spin_y.setSuffix(" mm")
-        self._spin_y.setDecimals(1)
+        self._spin_y.setDecimals(2)
+        self._spin_y.setSingleStep(1.0)
         row_y.addWidget(self._spin_y)
         common_layout.addLayout(row_y)
 
@@ -122,11 +124,10 @@ class PhantomPanel(QWidget):
         wire_layout.setSpacing(3)
 
         row_wd = QHBoxLayout()
-        self._lbl_wire_diameter = self._prop_label(t("phantom.diameter", "Diameter:"))
+        self._lbl_wire_diameter = self._prop_label(t("phantom.diameter_mm", "Dia (mm):"))
         row_wd.addWidget(self._lbl_wire_diameter)
-        self._spin_wire_d = QDoubleSpinBox()
+        self._spin_wire_d = SmartDoubleSpinBox()
         self._spin_wire_d.setRange(0.01, 10.0)
-        self._spin_wire_d.setSuffix(" mm")
         self._spin_wire_d.setDecimals(2)
         self._spin_wire_d.setSingleStep(0.1)
         row_wd.addWidget(self._spin_wire_d)
@@ -143,20 +144,21 @@ class PhantomPanel(QWidget):
         row_freq = QHBoxLayout()
         self._lbl_frequency = self._prop_label(t("phantom.frequency", "Frequency:"))
         row_freq.addWidget(self._lbl_frequency)
-        self._spin_lp_freq = QDoubleSpinBox()
+        self._spin_lp_freq = SmartDoubleSpinBox()
         self._spin_lp_freq.setRange(0.1, 20.0)
         self._spin_lp_freq.setSuffix(" lp/mm")
-        self._spin_lp_freq.setDecimals(1)
+        self._spin_lp_freq.setDecimals(2)
+        self._spin_lp_freq.setSingleStep(0.1)
         row_freq.addWidget(self._spin_lp_freq)
         lp_layout.addLayout(row_freq)
 
         row_bt = QHBoxLayout()
-        self._lbl_thickness = self._prop_label(t("phantom.thickness", "Thickness:"))
+        self._lbl_thickness = self._prop_label(t("phantom.thickness_mm", "Thick (mm):"))
         row_bt.addWidget(self._lbl_thickness)
-        self._spin_lp_thick = QDoubleSpinBox()
+        self._spin_lp_thick = SmartDoubleSpinBox()
         self._spin_lp_thick.setRange(0.1, 10.0)
-        self._spin_lp_thick.setSuffix(" mm")
-        self._spin_lp_thick.setDecimals(1)
+        self._spin_lp_thick.setDecimals(2)
+        self._spin_lp_thick.setSingleStep(0.1)
         row_bt.addWidget(self._spin_lp_thick)
         lp_layout.addLayout(row_bt)
 
@@ -177,22 +179,22 @@ class PhantomPanel(QWidget):
         grid_layout.setSpacing(3)
 
         row_pitch = QHBoxLayout()
-        self._lbl_pitch = self._prop_label(t("phantom.pitch", "Pitch:"))
+        self._lbl_pitch = self._prop_label(t("phantom.pitch_mm", "Pitch (mm):"))
         row_pitch.addWidget(self._lbl_pitch)
-        self._spin_grid_pitch = QDoubleSpinBox()
+        self._spin_grid_pitch = SmartDoubleSpinBox()
         self._spin_grid_pitch.setRange(0.1, 50.0)
-        self._spin_grid_pitch.setSuffix(" mm")
-        self._spin_grid_pitch.setDecimals(1)
+        self._spin_grid_pitch.setDecimals(2)
+        self._spin_grid_pitch.setSingleStep(0.5)
         row_pitch.addWidget(self._spin_grid_pitch)
         grid_layout.addLayout(row_pitch)
 
         row_gw = QHBoxLayout()
-        self._lbl_grid_wire_d = self._prop_label(t("phantom.wire_diameter", "Wire Dia:"))
+        self._lbl_grid_wire_d = self._prop_label(t("phantom.wire_dia_mm", "Wire (mm):"))
         row_gw.addWidget(self._lbl_grid_wire_d)
-        self._spin_grid_wd = QDoubleSpinBox()
+        self._spin_grid_wd = SmartDoubleSpinBox()
         self._spin_grid_wd.setRange(0.01, 5.0)
-        self._spin_grid_wd.setSuffix(" mm")
         self._spin_grid_wd.setDecimals(2)
+        self._spin_grid_wd.setSingleStep(0.1)
         row_gw.addWidget(self._spin_grid_wd)
         grid_layout.addLayout(row_gw)
 
@@ -262,21 +264,21 @@ class PhantomPanel(QWidget):
         self._btn_remove.setText(t("phantom.remove", "- Remove"))
 
         # Common property labels
-        self._lbl_y_position.setText(t("phantom.y_position", "Y Position:"))
+        self._lbl_y_position.setText(t("phantom.y_position_mm", "Y Pos (mm):"))
         self._lbl_material.setText(t("phantom.material", "Material:"))
         self._lbl_enabled.setText(t("phantom.enabled", "Enabled:"))
 
         # Wire
-        self._lbl_wire_diameter.setText(t("phantom.diameter", "Diameter:"))
+        self._lbl_wire_diameter.setText(t("phantom.diameter_mm", "Dia (mm):"))
 
         # Line-pair
         self._lbl_frequency.setText(t("phantom.frequency", "Frequency:"))
-        self._lbl_thickness.setText(t("phantom.thickness", "Thickness:"))
+        self._lbl_thickness.setText(t("phantom.thickness_mm", "Thick (mm):"))
         self._lbl_cycles.setText(t("phantom.cycles", "Cycles:"))
 
         # Grid
-        self._lbl_pitch.setText(t("phantom.pitch", "Pitch:"))
-        self._lbl_grid_wire_d.setText(t("phantom.wire_diameter", "Wire Dia:"))
+        self._lbl_pitch.setText(t("phantom.pitch_mm", "Pitch (mm):"))
+        self._lbl_grid_wire_d.setText(t("phantom.wire_dia_mm", "Wire (mm):"))
 
     # ------------------------------------------------------------------
     # Refresh

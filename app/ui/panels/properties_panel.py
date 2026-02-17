@@ -7,9 +7,11 @@ Reference: Phase-03 spec — FR-1.3.5, FR-1.5.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDoubleSpinBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QSpinBox, QComboBox, QFrame,
 )
+
+from app.ui.widgets.smart_spinbox import SmartDoubleSpinBox
 from PyQt6.QtCore import QSignalBlocker
 
 from app.core.i18n import t, TranslationManager
@@ -43,7 +45,7 @@ class PropertiesPanel(QWidget):
         layout.setSpacing(6)
 
         # --- Source ---
-        self._lbl_source_header = self._section_label(t("panels.source", "Source"))
+        self._lbl_source_header = self._section_label(t("panels.source_mm", "Source (mm)"))
         layout.addWidget(self._lbl_source_header)
         src_frame = self._make_frame()
         src_layout = QVBoxLayout(src_frame)
@@ -53,10 +55,10 @@ class PropertiesPanel(QWidget):
         row2 = QHBoxLayout()
         self._lbl_focal = self._prop_label(t("panels.focal_spot", "Focal Spot:"))
         row2.addWidget(self._lbl_focal)
-        self._spin_focal = QDoubleSpinBox()
+        self._spin_focal = SmartDoubleSpinBox()
         self._spin_focal.setRange(0.1, 20.0)
-        self._spin_focal.setSuffix(" mm")
-        self._spin_focal.setDecimals(1)
+        self._spin_focal.setDecimals(2)
+        self._spin_focal.setSingleStep(0.1)
         row2.addWidget(self._spin_focal)
         src_layout.addLayout(row2)
 
@@ -77,10 +79,10 @@ class PropertiesPanel(QWidget):
         row2c = QHBoxLayout()
         self._lbl_beam_angle = self._prop_label(t("panels.beam_angle", "Beam Angle:"))
         row2c.addWidget(self._lbl_beam_angle)
-        self._spin_beam_angle = QDoubleSpinBox()
+        self._spin_beam_angle = SmartDoubleSpinBox()
         self._spin_beam_angle.setRange(0.0, 180.0)
-        self._spin_beam_angle.setSuffix(" \u00B0")
-        self._spin_beam_angle.setDecimals(1)
+        self._spin_beam_angle.setSuffix("\u00B0")
+        self._spin_beam_angle.setDecimals(2)
         self._spin_beam_angle.setSingleStep(1.0)
         self._spin_beam_angle.setSpecialValueText(t("panels.automatic", "Automatic"))
         row2c.addWidget(self._spin_beam_angle)
@@ -104,7 +106,7 @@ class PropertiesPanel(QWidget):
             t("panels.tube_current", "Tube Current:")
         )
         row_mA.addWidget(self._lbl_tube_current)
-        self._spin_tube_current = QDoubleSpinBox()
+        self._spin_tube_current = SmartDoubleSpinBox()
         self._spin_tube_current.setRange(0.1, 20.0)
         self._spin_tube_current.setSuffix(" mA")
         self._spin_tube_current.setDecimals(1)
@@ -122,10 +124,13 @@ class PropertiesPanel(QWidget):
         self._combo_tube_method = QComboBox()
         self._combo_tube_method.setStyleSheet("font-size: 8pt;")
         self._combo_tube_method.addItem(
-            t("panels.empirical", "Ampirik"), "empirical"
+            t("panels.empirical", "Empirical"), "empirical"
         )
         self._combo_tube_method.addItem(
-            t("panels.lookup_table", "Tablo"), "lookup"
+            t("panels.spectral", "Spectral"), "spectral"
+        )
+        self._combo_tube_method.addItem(
+            t("panels.lookup_table", "Lookup"), "lookup"
         )
         row_method.addWidget(self._combo_tube_method)
         dose_layout.addLayout(row_method)
@@ -148,7 +153,7 @@ class PropertiesPanel(QWidget):
             t("panels.dose_rate", "Dose Rate:")
         )
         row_dose.addWidget(self._lbl_linac_dose)
-        self._spin_linac_dose = QDoubleSpinBox()
+        self._spin_linac_dose = SmartDoubleSpinBox()
         self._spin_linac_dose.setRange(0.01, 100.0)
         self._spin_linac_dose.setSuffix(" Gy/min")
         self._spin_linac_dose.setDecimals(3)
@@ -170,7 +175,7 @@ class PropertiesPanel(QWidget):
         ]
 
         # --- Detector ---
-        self._lbl_detector_header = self._section_label(t("panels.detector", "Detector"))
+        self._lbl_detector_header = self._section_label(t("panels.detector_mm", "Detector (mm)"))
         layout.addWidget(self._lbl_detector_header)
         det_frame = self._make_frame()
         det_layout = QVBoxLayout(det_frame)
@@ -180,27 +185,27 @@ class PropertiesPanel(QWidget):
         row3 = QHBoxLayout()
         self._lbl_y_position = self._prop_label(t("panels.y_position", "Y Position:"))
         row3.addWidget(self._lbl_y_position)
-        self._spin_det_y = QDoubleSpinBox()
+        self._spin_det_y = SmartDoubleSpinBox()
         self._spin_det_y.setRange(0, 5000)
-        self._spin_det_y.setSuffix(" mm")
-        self._spin_det_y.setDecimals(1)
+        self._spin_det_y.setDecimals(2)
+        self._spin_det_y.setSingleStep(1.0)
         row3.addWidget(self._spin_det_y)
         det_layout.addLayout(row3)
 
         row4 = QHBoxLayout()
         self._lbl_width = self._prop_label(t("panels.width", "Width:"))
         row4.addWidget(self._lbl_width)
-        self._spin_det_w = QDoubleSpinBox()
+        self._spin_det_w = SmartDoubleSpinBox()
         self._spin_det_w.setRange(10, 2000)
-        self._spin_det_w.setSuffix(" mm")
-        self._spin_det_w.setDecimals(1)
+        self._spin_det_w.setDecimals(2)
+        self._spin_det_w.setSingleStep(1.0)
         row4.addWidget(self._spin_det_w)
         det_layout.addLayout(row4)
 
         row5 = QHBoxLayout()
         self._lbl_sdd_label = self._prop_label(t("panels.sdd", "SDD:"))
         row5.addWidget(self._lbl_sdd_label)
-        self._lbl_sdd = QLabel("\u2014 mm")
+        self._lbl_sdd = QLabel("\u2014")
         self._lbl_sdd.setStyleSheet("color: #F8FAFC; font-size: 8pt;")
         row5.addWidget(self._lbl_sdd)
         det_layout.addLayout(row5)
@@ -278,18 +283,23 @@ class PropertiesPanel(QWidget):
 
     def retranslate_ui(self) -> None:
         """Update all translatable strings after language change."""
-        self._lbl_source_header.setText(t("panels.source", "Source"))
+        self._lbl_source_header.setText(t("panels.source_mm", "Source (mm)"))
         self._lbl_focal.setText(t("panels.focal_spot", "Focal Spot:"))
         self._lbl_distribution.setText(t("panels.distribution", "Distribution:"))
         self._lbl_beam_angle.setText(t("panels.beam_angle", "Beam Angle:"))
         self._spin_beam_angle.setSpecialValueText(t("panels.automatic", "Automatic"))
-        self._lbl_detector_header.setText(t("panels.detector", "Detector"))
+        self._lbl_detector_header.setText(t("panels.detector_mm", "Detector (mm)"))
         self._lbl_y_position.setText(t("panels.y_position", "Y Position:"))
         self._lbl_width.setText(t("panels.width", "Width:"))
         self._lbl_sdd_label.setText(t("panels.sdd", "SDD:"))
         self._lbl_dose_header.setText(t("panels.dose_intensity", "Dose / Intensity"))
         self._lbl_tube_current.setText(t("panels.tube_current", "Tube Current:"))
         self._lbl_tube_method.setText(t("panels.output_method", "Output:"))
+        from PyQt6.QtCore import QSignalBlocker
+        with QSignalBlocker(self._combo_tube_method):
+            self._combo_tube_method.setItemText(0, t("panels.empirical", "Empirical"))
+            self._combo_tube_method.setItemText(1, t("panels.spectral", "Spectral"))
+            self._combo_tube_method.setItemText(2, t("panels.lookup_table", "Lookup"))
         self._lbl_linac_dose.setText(t("panels.dose_rate", "Dose Rate:"))
 
     # ------------------------------------------------------------------
@@ -334,7 +344,7 @@ class PropertiesPanel(QWidget):
             self._spin_det_y.setValue(det.position.y)
         with QSignalBlocker(self._spin_det_w):
             self._spin_det_w.setValue(det.width)
-        self._lbl_sdd.setText(f"{det.distance_from_source:.0f} mm")
+        self._lbl_sdd.setText(f"{det.distance_from_source:.0f}")
 
     # ------------------------------------------------------------------
     # Widget -> controller slots

@@ -11,7 +11,7 @@ from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont
 
 from app.models.phantom import PhantomType
-from app.ui.styles.colors import PHANTOM_WIRE, PHANTOM_LINE_PAIR, PHANTOM_GRID
+from app.ui.styles.colors import ACCENT, PHANTOM_WIRE, PHANTOM_LINE_PAIR, PHANTOM_GRID
 
 
 ICON_HALF = 10.0  # half-size of icon area [scene units = mm]
@@ -44,19 +44,25 @@ class PhantomItem(QGraphicsItem):
         self._type = phantom_type
         self._label = ""
         self._enabled = True
-        self._locked: bool = False
+        self._selected: bool = False
+        self._locked: bool = True
         self._x_locked: bool = True
+        self._label_visible: bool = True
         self._dragging: bool = False
 
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setCursor(Qt.CursorShape.ForbiddenCursor)
         self.setZValue(45)
 
     @property
     def phantom_index(self) -> int:
         return self._index
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = selected
+        self.update()
 
     def set_label(self, label: str) -> None:
         self._label = label
@@ -80,6 +86,10 @@ class PhantomItem(QGraphicsItem):
             Qt.CursorShape.ForbiddenCursor if locked
             else Qt.CursorShape.SizeVerCursor
         )
+
+    def set_label_visible(self, visible: bool) -> None:
+        self._label_visible = visible
+        self.update()
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
@@ -110,15 +120,26 @@ class PhantomItem(QGraphicsItem):
             case PhantomType.GRID:
                 self._paint_grid(painter, color)
 
+        # Selection highlight
+        if self._selected:
+            sel_pen = QPen(QColor(ACCENT), 2)
+            sel_pen.setCosmetic(True)
+            sel_pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(QRectF(-ICON_HALF - 4, -ICON_HALF - 4,
+                                    ICON_HALF * 2 + 8, ICON_HALF * 2 + 8))
+
         # Label
-        painter.setPen(QColor("#F8FAFC"))
-        font = QFont("Segoe UI", 7)
-        painter.setFont(font)
-        painter.drawText(
-            QRectF(-35, ICON_HALF, 70, 14),
-            Qt.AlignmentFlag.AlignCenter,
-            self._label,
-        )
+        if self._label_visible:
+            painter.setPen(QColor("#F8FAFC"))
+            font = QFont("Segoe UI", 7)
+            painter.setFont(font)
+            painter.drawText(
+                QRectF(-35, ICON_HALF, 70, 14),
+                Qt.AlignmentFlag.AlignCenter,
+                self._label,
+            )
 
     def _paint_wire(self, painter: QPainter, color: QColor) -> None:
         """Wire: horizontal line with dots at ends."""

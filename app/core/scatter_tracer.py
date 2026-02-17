@@ -163,6 +163,7 @@ class ScatterTracer:
         src_x_cm = mm_to_cm(geometry.source.position.x)
         src_y_cm = mm_to_cm(geometry.source.position.y)
         det_y_cm = mm_to_cm(geometry.detector.position.y)
+        det_half_cm = mm_to_cm(geometry.detector.width / 2.0)
         rng = self._sampler.rng
 
         # Generate primary ray angles
@@ -292,6 +293,9 @@ class ScatterTracer:
                         # Compute detector position
                         det_x = _ray_x_at_y(scatter_ray, det_y_cm)
 
+                        # Filter: only count scatter landing on detector
+                        lands_on_detector = abs(det_x) <= det_half_cm
+
                         interaction = ScatterInteraction(
                             x=ix,
                             y=iy,
@@ -300,13 +304,14 @@ class ScatterTracer:
                             incident_energy_keV=energy_keV,
                             scattered_energy_keV=E_scattered,
                             scatter_angle_rad=theta,
-                            reaches_detector=True,
-                            detector_x_cm=det_x,
-                            weight=scatter_transmission,
+                            reaches_detector=lands_on_detector,
+                            detector_x_cm=det_x if lands_on_detector else float("nan"),
+                            weight=scatter_transmission if lands_on_detector else 0.0,
                         )
                         interactions.append(interaction)
-                        scatter_detector_x.append(det_x)
-                        scatter_weights.append(scatter_transmission)
+                        if lands_on_detector:
+                            scatter_detector_x.append(det_x)
+                            scatter_weights.append(scatter_transmission)
 
             # Progress reporting
             if progress_callback and (ray_idx + 1) % progress_step == 0:

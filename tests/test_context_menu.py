@@ -31,9 +31,9 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 class TestSourceItemLock:
 
-    def test_default_unlocked(self):
+    def test_default_locked(self):
         item = SourceItem()
-        assert item.locked is False
+        assert item.locked is True
 
     def test_set_locked(self):
         item = SourceItem()
@@ -62,9 +62,9 @@ class TestSourceItemLock:
 
 class TestDetectorItemLock:
 
-    def test_default_unlocked(self):
+    def test_default_locked(self):
         item = DetectorItem()
-        assert item.locked is False
+        assert item.locked is True
 
     def test_set_locked(self):
         item = DetectorItem()
@@ -81,9 +81,9 @@ class TestDetectorItemLock:
 
 class TestPhantomItemLock:
 
-    def test_default_unlocked(self):
+    def test_default_locked(self):
         item = PhantomItem(0, PhantomType.WIRE)
-        assert item.locked is False
+        assert item.locked is True
 
     def test_set_locked(self):
         item = PhantomItem(0, PhantomType.WIRE)
@@ -100,9 +100,9 @@ class TestPhantomItemLock:
 
 class TestStageItemLock:
 
-    def test_default_unlocked(self):
+    def test_default_locked(self):
         item = StageItem(0)
-        assert item.locked is False
+        assert item.locked is True
 
     def test_set_locked(self):
         item = StageItem(0)
@@ -123,6 +123,7 @@ class TestStageItemLock:
     def test_unlocked_allows_handle_callback(self):
         results = []
         item = StageItem(0)
+        item.set_locked(False)  # unlock first (default is locked)
         item.set_handle_callback(lambda idx, pos, dx, dy: results.append((idx, pos, dx, dy)))
 
         from app.ui.canvas.resize_handle import HandlePosition
@@ -214,9 +215,9 @@ class TestLockAll:
 
 class TestStageIndependentMovement:
 
-    def test_stage_is_movable_by_default(self):
+    def test_stage_is_locked_by_default(self):
         item = StageItem(0)
-        assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        assert not item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
 
     def test_stage_sends_geometry_changes(self):
         item = StageItem(0)

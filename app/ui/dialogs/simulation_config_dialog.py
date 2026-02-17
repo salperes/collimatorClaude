@@ -50,6 +50,14 @@ class SimulationConfigDialog(QDialog):
         self._cb_buildup.setChecked(cur.include_buildup if cur else True)
         gen_form.addRow(t("dialogs.sim_config_buildup", "Build-up:"), self._cb_buildup)
 
+        self._cb_air = QCheckBox(t("isodose.include_air", "Air Attenuation"))
+        self._cb_air.setChecked(cur.include_air if cur else False)
+        gen_form.addRow(t("dialogs.sim_config_air", "Air:"), self._cb_air)
+
+        self._cb_inverse_sq = QCheckBox(t("isodose.include_inverse_sq", "1/r² Inverse Square"))
+        self._cb_inverse_sq.setChecked(cur.include_inverse_sq if cur else False)
+        gen_form.addRow(t("dialogs.sim_config_inverse_sq", "1/r²:"), self._cb_inverse_sq)
+
         layout.addWidget(gen_group)
 
         # Scatter group
@@ -85,6 +93,37 @@ class SimulationConfigDialog(QDialog):
 
         self._on_scatter_toggled(self._cb_scatter.isChecked())
 
+        # Isodose group
+        isodose_group = QGroupBox(t("dialogs.sim_config_isodose", "Isodose Map"))
+        isodose_form = QFormLayout(isodose_group)
+
+        self._cb_isodose = QCheckBox(t("dialogs.sim_config_isodose_include", "Compute Isodose Map"))
+        self._cb_isodose.setChecked(cur.compute_isodose if cur else False)
+        self._cb_isodose.toggled.connect(self._on_isodose_toggled)
+        isodose_form.addRow(self._cb_isodose)
+
+        self._spin_isodose_nx = QSpinBox()
+        self._spin_isodose_nx.setRange(20, 300)
+        self._spin_isodose_nx.setSingleStep(10)
+        self._spin_isodose_nx.setValue(cur.isodose_nx if cur else 120)
+        isodose_form.addRow(
+            t("dialogs.sim_config_isodose_nx", "X Resolution:"),
+            self._spin_isodose_nx,
+        )
+
+        self._spin_isodose_ny = QSpinBox()
+        self._spin_isodose_ny.setRange(20, 200)
+        self._spin_isodose_ny.setSingleStep(10)
+        self._spin_isodose_ny.setValue(cur.isodose_ny if cur else 80)
+        isodose_form.addRow(
+            t("dialogs.sim_config_isodose_ny", "Y Resolution:"),
+            self._spin_isodose_ny,
+        )
+
+        layout.addWidget(isodose_group)
+
+        self._on_isodose_toggled(self._cb_isodose.isChecked())
+
         # Buttons
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -100,6 +139,11 @@ class SimulationConfigDialog(QDialog):
         self._spin_scatter_rays.setEnabled(enabled)
         self._spin_min_energy.setEnabled(enabled)
 
+    def _on_isodose_toggled(self, enabled: bool) -> None:
+        """Enable/disable isodose resolution settings."""
+        self._spin_isodose_nx.setEnabled(enabled)
+        self._spin_isodose_ny.setEnabled(enabled)
+
     def get_config(self) -> SimulationConfig:
         """Return SimulationConfig from current dialog values."""
         compton_cfg = ComptonConfig(
@@ -111,6 +155,11 @@ class SimulationConfigDialog(QDialog):
         return SimulationConfig(
             num_rays=self._spin_rays.value(),
             include_buildup=self._cb_buildup.isChecked(),
+            include_air=self._cb_air.isChecked(),
+            include_inverse_sq=self._cb_inverse_sq.isChecked(),
             include_scatter=self._cb_scatter.isChecked(),
             compton_config=compton_cfg,
+            compute_isodose=self._cb_isodose.isChecked(),
+            isodose_nx=self._spin_isodose_nx.value(),
+            isodose_ny=self._spin_isodose_ny.value(),
         )

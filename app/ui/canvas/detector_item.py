@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem
 from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont
 
-from app.ui.styles.colors import SUCCESS
+from app.ui.styles.colors import ACCENT, SUCCESS
 
 
 class DetectorItem(QGraphicsItem):
@@ -18,17 +18,23 @@ class DetectorItem(QGraphicsItem):
     def __init__(self, parent: QGraphicsItem | None = None):
         super().__init__(parent)
         self._width: float = 500.0  # mm
+        self._selected: bool = False
         self._on_moved: callable | None = None
-        self._locked: bool = False
+        self._locked: bool = True
         self._x_locked: bool = True
+        self._label_visible: bool = True
         self._dragging: bool = False
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True
         )
         self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setCursor(Qt.CursorShape.ForbiddenCursor)
         self.setZValue(50)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = selected
+        self.update()
 
     def set_move_callback(self, callback: callable) -> None:
         """Set callback for position changes from canvas drag."""
@@ -52,6 +58,10 @@ class DetectorItem(QGraphicsItem):
 
     def set_x_locked(self, locked: bool) -> None:
         self._x_locked = locked
+
+    def set_label_visible(self, visible: bool) -> None:
+        self._label_visible = visible
+        self.update()
 
     def set_width(self, width_mm: float) -> None:
         self.prepareGeometryChange()
@@ -88,15 +98,25 @@ class DetectorItem(QGraphicsItem):
         painter.drawLine(QPointF(-hw, -5), QPointF(-hw, 5))
         painter.drawLine(QPointF(hw, -5), QPointF(hw, 5))
 
+        # Selection highlight
+        if self._selected:
+            sel_pen = QPen(QColor(ACCENT), 2)
+            sel_pen.setCosmetic(True)
+            sel_pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(QRectF(-hw - 3, -8, self._width + 6, 16))
+
         # Label
-        painter.setPen(QColor("#F8FAFC"))
-        font = QFont("Segoe UI", 7)
-        painter.setFont(font)
-        painter.drawText(
-            QRectF(-40, 5, 80, 12),
-            Qt.AlignmentFlag.AlignCenter,
-            f"Detektor ({self._width:.0f}mm)",
-        )
+        if self._label_visible:
+            painter.setPen(QColor("#F8FAFC"))
+            font = QFont("Segoe UI", 7)
+            painter.setFont(font)
+            painter.drawText(
+                QRectF(-40, 5, 80, 12),
+                Qt.AlignmentFlag.AlignCenter,
+                f"Detektor ({self._width:.0f}mm)",
+            )
 
     def mousePressEvent(self, event) -> None:
         self._dragging = True

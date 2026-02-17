@@ -25,6 +25,7 @@ from reportlab.platypus import (
 )
 
 from app.constants import APP_NAME, APP_VERSION
+from app.core.i18n import t
 
 if TYPE_CHECKING:
     from app.core.validation_runner import ValidationSummary
@@ -39,15 +40,17 @@ _PASS_TEXT = colors.HexColor("#166534")
 _FAIL_TEXT = colors.HexColor("#991B1B")
 _SKIP_TEXT = colors.HexColor("#854D0E")
 
-# Group titles
-_GROUP_NAMES = {
-    "V1": "V1 — Malzeme Veritabani (mu/rho vs xraylib)",
-    "V2": "V2 — Fizik Motoru (HVL/TVL/Beer-Lambert)",
-    "V3": "V3 — Build-up Faktorleri (GP vs ANSI)",
-    "V4": "V4 — Compton/Klein-Nishina (kinematics + sigma)",
-    "V5": "V5 — KN Ornekleyici (istatistiksel)",
-    "V6": "V6 — Isin Simulasyonu (analitik levha)",
-}
+
+def _group_names() -> dict[str, str]:
+    """Group titles — called at render time for i18n."""
+    return {
+        "V1": t("validation_report.v1", "V1 — Material Database (mu/rho vs xraylib)"),
+        "V2": t("validation_report.v2", "V2 — Physics Engine (HVL/TVL/Beer-Lambert)"),
+        "V3": t("validation_report.v3", "V3 — Build-up Factors (GP vs ANSI)"),
+        "V4": t("validation_report.v4", "V4 — Compton/Klein-Nishina (kinematics + sigma)"),
+        "V5": t("validation_report.v5", "V5 — KN Sampler (statistical)"),
+        "V6": t("validation_report.v6", "V6 — Beam Simulation (analytical slab)"),
+    }
 
 
 class ValidationReportExporter:
@@ -113,32 +116,47 @@ class ValidationReportExporter:
     # ------------------------------------------------------------------
 
     def _build_cover(self, summary: ValidationSummary) -> list:
+        xraylib_text = (
+            t("validation_report.xraylib_installed", "xraylib: v{version}").format(version=summary.xraylib_version)
+            if summary.xraylib_available
+            else t("validation_report.xraylib_not_installed", "xraylib: Not installed")
+        )
+
         story = [
             Spacer(1, 60 * mm),
-            Paragraph("Fizik Motoru Dogrulama Raporu", self._styles["CoverTitle"]),
-            Paragraph("Cross-Validation Report (V1-V6)", self._styles["CoverSubtitle"]),
+            Paragraph(
+                t("validation_report.title", "Physics Engine Validation Report"),
+                self._styles["CoverTitle"],
+            ),
+            Paragraph(
+                t("validation_report.subtitle", "Cross-Validation Report (V1-V6)"),
+                self._styles["CoverSubtitle"],
+            ),
             Spacer(1, 10 * mm),
             Paragraph(
-                f"Tarih: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                t("validation_report.date", "Date: {date}").format(
+                    date=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                ),
                 self._styles["CoverSubtitle"],
             ),
             Paragraph(
-                f"Uygulama: {APP_NAME} v{APP_VERSION}",
+                t("validation_report.app", "Application: {app}").format(
+                    app=f"{APP_NAME} v{APP_VERSION}",
+                ),
                 self._styles["CoverSubtitle"],
             ),
-            Paragraph(
-                f"xraylib: {'v' + summary.xraylib_version if summary.xraylib_available else 'Yuklu degil'}",
-                self._styles["CoverSubtitle"],
-            ),
+            Paragraph(xraylib_text, self._styles["CoverSubtitle"]),
             Spacer(1, 20 * mm),
         ]
 
         # Big pass/fail indicator
         if summary.failed == 0:
-            verdict = "TUM TESTLER BASARILI"
+            verdict = t("validation_report.all_pass", "ALL TESTS PASSED")
             verdict_color = _PASS_TEXT
         else:
-            verdict = f"{summary.failed} TEST BASARISIZ"
+            verdict = t("validation_report.some_fail", "{count} TESTS FAILED").format(
+                count=summary.failed,
+            )
             verdict_color = _FAIL_TEXT
 
         story.append(Paragraph(
@@ -146,9 +164,15 @@ class ValidationReportExporter:
             self._styles["BodyText2"],
         ))
         story.append(Paragraph(
-            f"Toplam: {summary.total} | Basarili: {summary.passed} | "
-            f"Basarisiz: {summary.failed} | Atlanan: {summary.skipped} | "
-            f"Sure: {summary.duration_s:.2f}s",
+            t("validation_report.summary_line",
+              "Total: {total} | Passed: {passed} | Failed: {failed} | Skipped: {skipped} | Duration: {duration}s",
+            ).format(
+                total=summary.total,
+                passed=summary.passed,
+                failed=summary.failed,
+                skipped=summary.skipped,
+                duration=f"{summary.duration_s:.2f}",
+            ),
             self._styles["BodyText2"],
         ))
         return story
@@ -159,7 +183,10 @@ class ValidationReportExporter:
 
     def _build_summary(self, summary: ValidationSummary) -> list:
         story = [
-            Paragraph("Ozet", self._styles["SectionTitle"]),
+            Paragraph(
+                t("validation_report.summary_title", "Summary"),
+                self._styles["SectionTitle"],
+            ),
         ]
 
         # Per-group summary
@@ -176,12 +203,20 @@ class ValidationReportExporter:
             else:
                 groups[g]["failed"] += 1
 
-        data = [["Grup", "Aciklama", "Toplam", "Basarili", "Basarisiz", "Atlanan"]]
+        gnames = _group_names()
+        data = [[
+            t("validation_report.col_group", "Group"),
+            t("validation_report.col_description", "Description"),
+            t("validation_report.col_total", "Total"),
+            t("validation_report.col_passed", "Passed"),
+            t("validation_report.col_failed", "Failed"),
+            t("validation_report.col_skipped", "Skipped"),
+        ]]
         for gid in sorted(groups.keys()):
             g = groups[gid]
             data.append([
                 gid,
-                _GROUP_NAMES.get(gid, gid),
+                gnames.get(gid, gid),
                 str(g["total"]),
                 str(g["passed"]),
                 str(g["failed"]),
@@ -222,9 +257,10 @@ class ValidationReportExporter:
         for r in summary.results:
             by_group.setdefault(r.group, []).append(r)
 
+        gnames = _group_names()
         for gid in sorted(by_group.keys()):
             results = by_group[gid]
-            title = _GROUP_NAMES.get(gid, gid)
+            title = gnames.get(gid, gid)
             story.append(Paragraph(title, self._styles["SectionTitle"]))
 
             data = [["Test ID", "Bizim", "Referans", "Fark%", "Tolerans%", "Durum"]]
@@ -292,7 +328,10 @@ class ValidationReportExporter:
         canvas.saveState()
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.gray)
-        canvas.drawRightString(A4[0] - 20 * mm, 10 * mm, f"Sayfa {doc.page}")
+        canvas.drawRightString(
+            A4[0] - 20 * mm, 10 * mm,
+            t("validation_report.page_footer", "Page {page}").format(page=doc.page),
+        )
         canvas.drawString(
             20 * mm, 10 * mm,
             f"{APP_NAME} v{APP_VERSION} — {datetime.now().strftime('%Y-%m-%d')}",

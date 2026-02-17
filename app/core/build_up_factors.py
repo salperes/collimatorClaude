@@ -19,6 +19,17 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Alloys/compounds without dedicated buildup data → nearest parent element.
+# SS304/SS316 are iron-based stainless steels; Bronze is copper-based;
+# Beryllium (Z=4) has no published GP/Taylor data — use Al (Z=13) as
+# closest available low-Z surrogate.
+_BUILDUP_FALLBACK: dict[str, str] = {
+    "SS304": "Fe",
+    "SS316": "Fe",
+    "Bronze": "Cu",
+    "Be": "Al",
+}
+
 
 class BuildUpFactors:
     """Build-up factor service using GP and Taylor fitting formulas.
@@ -171,18 +182,38 @@ class BuildUpFactors:
             raise ValueError(f"Unknown buildup method: {method!r}")
 
     def has_gp_data(self, material_id: str) -> bool:
-        """Check if GP parameters are available for a material."""
-        mat = self._data.get("materials", {}).get(material_id, {})
+        """Check if GP parameters are available for a material (incl. fallback)."""
+        try:
+            resolved = self._resolve_material(material_id)
+        except ValueError:
+            return False
+        mat = self._data.get("materials", {}).get(resolved, {})
         return len(mat.get("gp_parameters", {}).get("data", [])) > 0
 
     def has_taylor_data(self, material_id: str) -> bool:
-        """Check if Taylor parameters are available for a material."""
-        mat = self._data.get("materials", {}).get(material_id, {})
+        """Check if Taylor parameters are available for a material (incl. fallback)."""
+        try:
+            resolved = self._resolve_material(material_id)
+        except ValueError:
+            return False
+        mat = self._data.get("materials", {}).get(resolved, {})
         return len(mat.get("taylor_parameters", {}).get("data", [])) > 0
 
     # ------------------------------------------------------------------
     # Internal — parameter interpolation
     # ------------------------------------------------------------------
+
+    def _resolve_material(self, material_id: str) -> str:
+        """Resolve alloy material_id to parent element via fallback map."""
+        if material_id in self._data.get("materials", {}):
+            return material_id
+        resolved = _BUILDUP_FALLBACK.get(material_id)
+        if resolved and resolved in self._data.get("materials", {}):
+            logger.debug(
+                "Buildup fallback: %s → %s", material_id, resolved,
+            )
+            return resolved
+        raise ValueError(f"No buildup data for material: {material_id!r}")
 
     def _interpolate_gp_params(
         self,
@@ -190,9 +221,8 @@ class BuildUpFactors:
         energy_keV: float,
     ) -> dict[str, float]:
         """Interpolate GP parameters at arbitrary energy via log interpolation."""
-        mat = self._data.get("materials", {}).get(material_id)
-        if mat is None:
-            raise ValueError(f"No buildup data for material: {material_id!r}")
+        resolved_id = self._resolve_material(material_id)
+        mat = self._data["materials"][resolved_id]
 
         gp_data = mat.get("gp_parameters", {}).get("data", [])
         if not gp_data:
@@ -219,9 +249,8 @@ class BuildUpFactors:
         energy_keV: float,
     ) -> dict[str, float]:
         """Interpolate Taylor parameters at arbitrary energy."""
-        mat = self._data.get("materials", {}).get(material_id)
-        if mat is None:
-            raise ValueError(f"No buildup data for material: {material_id!r}")
+        resolved_id = self._resolve_material(material_id)
+        mat = self._data["materials"][resolved_id]
 
         taylor_data = mat.get("taylor_parameters", {}).get("data", [])
         if not taylor_data:

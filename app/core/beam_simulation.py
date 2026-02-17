@@ -91,6 +91,8 @@ class BeamSimulation:
         energy_keV: float,
         num_rays: int = 5000,
         include_buildup: bool = True,
+        include_air: bool = False,
+        include_inverse_sq: bool = False,
         progress_callback: Callable[[int], None] | None = None,
     ) -> SimulationResult:
         """Run full beam profile simulation.
@@ -99,13 +101,16 @@ class BeamSimulation:
         2. Trace each ray through the collimator.
         3. Compute Beer-Lambert transmission per ray.
         4. Optionally apply build-up factor.
-        5. Calculate quality metrics.
+        5. Optionally apply air attenuation and 1/r².
+        6. Calculate quality metrics.
 
         Args:
             geometry: Collimator geometry [mm, degree].
             energy_keV: Photon energy [keV].
             num_rays: Number of rays (default 5000).
             include_buildup: Apply build-up factor correction.
+            include_air: Apply air attenuation along ray path.
+            include_inverse_sq: Apply 1/r² geometric divergence.
             progress_callback: Called with progress 0-100.
 
         Returns:
@@ -116,6 +121,25 @@ class BeamSimulation:
         # Source position in core units [cm]
         src_x_cm = geometry.source.position.x / 10.0  # mm→cm
         src_y_cm = geometry.source.position.y / 10.0
+        det_y_cm = geometry.detector.position.y / 10.0
+
+        # Pre-compute air linear attenuation [cm^-1]
+        mu_air = 0.0
+        if include_air:
+            mu_air = self._physics.linear_attenuation("Air", energy_keV)
+
+        # Reference distance for 1/r² [cm]
+        r_ref_sq = 1.0
+        if include_inverse_sq:
+            layouts = compute_stage_layout(geometry)
+            if layouts:
+                dy_ref = layouts[0].y_top - src_y_cm
+            else:
+                dy_ref = det_y_cm - src_y_cm
+            r_ref_sq = max(dy_ref ** 2, 0.01)
+
+        # Total source-to-detector vertical distance [cm]
+        total_dy_cm = abs(det_y_cm - src_y_cm)
 
         # Generate ray angles
         angles = self._tracer.compute_ray_angles(num_rays, geometry)
@@ -137,13 +161,12 @@ class BeamSimulation:
             # Check if passes all apertures
             all_pass = all(sr.passes_aperture for sr in stage_results)
 
-            if all_pass:
-                intensities[i] = 1.0
-            else:
-                # Accumulate μ × path_length per material
-                total_mu_x = 0.0
-                layers_mfp: list[tuple[str, float]] = []
+            # Accumulate μ × path_length per material
+            total_mu_x = 0.0
+            material_path_cm = 0.0
+            layers_mfp: list[tuple[str, float]] = []
 
+            if not all_pass:
                 for sr in stage_results:
                     if sr.passes_aperture:
                         continue
@@ -153,21 +176,37 @@ class BeamSimulation:
                         )
                         mu_x = mu * ix.path_length
                         total_mu_x += mu_x
+                        material_path_cm += ix.path_length
 
                         # For build-up: convert to mfp
                         mfp = thickness_to_mfp(ix.path_length, mu)
                         layers_mfp.append((ix.material_id, mfp))
 
-                transmission = math.exp(-total_mu_x) if total_mu_x > 0 else 1.0
+            transmission = math.exp(-total_mu_x) if total_mu_x > 0 else 1.0
 
-                # Build-up correction
-                if include_buildup and self._buildup and layers_mfp:
-                    B = self._buildup.get_multilayer_buildup(
-                        layers_mfp, energy_keV,
-                    )
-                    transmission *= B
+            # Build-up correction
+            if include_buildup and self._buildup and layers_mfp:
+                B = self._buildup.get_multilayer_buildup(
+                    layers_mfp, energy_keV,
+                )
+                transmission *= B
 
-                intensities[i] = min(transmission, 1.0)
+            # Air attenuation
+            if include_air and mu_air > 1e-15:
+                cos_a = math.cos(float(angle))
+                total_ray_path = total_dy_cm / cos_a if abs(cos_a) > 1e-10 else total_dy_cm
+                air_path = max(total_ray_path - material_path_cm, 0.0)
+                transmission *= math.exp(-mu_air * air_path)
+
+            # Inverse-square law
+            if include_inverse_sq:
+                cos_a = math.cos(float(angle))
+                det_dx = total_dy_cm * math.tan(float(angle))
+                r_sq = det_dx**2 + total_dy_cm**2
+                r_sq = max(r_sq, 0.01)
+                transmission *= r_ref_sq / r_sq
+
+            intensities[i] = min(transmission, 1.0)
 
             # Detector position
             positions_cm[i] = self._tracer.compute_detector_position(ray, geometry)
@@ -415,6 +454,8 @@ class BeamSimulation:
         energies_keV: list[float],
         num_rays: int = 5000,
         include_buildup: bool = True,
+        include_air: bool = False,
+        include_inverse_sq: bool = False,
         progress_callback: Callable[[int], None] | None = None,
     ) -> dict[float, SimulationResult]:
         """Run beam profile at multiple energies for overlay comparison.
@@ -426,6 +467,8 @@ class BeamSimulation:
             energies_keV: List of photon energies [keV].
             num_rays: Number of rays per simulation.
             include_buildup: Apply build-up factor correction.
+            include_air: Apply air attenuation along ray path.
+            include_inverse_sq: Apply 1/r² geometric divergence.
             progress_callback: Called with progress 0-100 (total).
 
         Returns:
@@ -439,7 +482,8 @@ class BeamSimulation:
                     progress_callback(int((_idx * 100 + pct) / n))
 
             results[e] = self.calculate_beam_profile(
-                geometry, e, num_rays, include_buildup, _sub,
+                geometry, e, num_rays, include_buildup,
+                include_air, include_inverse_sq, _sub,
             )
         return results
 

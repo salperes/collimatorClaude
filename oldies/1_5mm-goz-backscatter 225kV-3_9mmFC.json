@@ -1,0 +1,243 @@
+{
+    "name": "\u00c7ok A\u015famal\u0131 Tasar\u0131m",
+    "source": {
+        "focal_spot_size_mm": 3.9,
+        "distribution": "gaussian",
+        "current_ma": 13.2,
+        "linac_dose_rate_Gy_min_he": 0.008,
+        "linac_dose_rate_Gy_min_le": 0.0025,
+        "linac_ref_pps_hz": 260.0,
+        "linac_current_pps_hz": 260.0,
+        "pulse_width_us": 3.0,
+        "linac_mode": "HE",
+        "use_linac_simulation": true,
+        "manual_dose_rate_Gy_min": 10.0,
+        "simulation_ray_count_k": 10
+    },
+    "detector": {
+        "distance_mm": 1800.0,
+        "width_mm": 600.0
+    },
+    "stages": [
+        {
+            "id": "f692da05-a2de-40ad-a8ba-1764e9abc57d",
+            "name": "Stage 10",
+            "distance_from_source_mm": 2.0,
+            "depth_mm": 100.0,
+            "outer_width_mm": 340.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 300.0,
+            "aperture_width_exit_mm": 300.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "2f121959-37b8-4b70-be25-d625b99e9608",
+                    "material_id": "Pb",
+                    "thickness_mm": 100.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "d45d234f-c8f4-4609-81f9-a5d854a63ce3",
+            "name": "Fan Kolimat\u00f6r\u00fc",
+            "distance_from_source_mm": 40.0,
+            "depth_mm": 141.0,
+            "outer_width_mm": 32.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 4.0,
+            "aperture_width_exit_mm": 4.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "bf6529a7-8cda-41d9-9401-891da4f0f4a2",
+                    "material_id": "Pb",
+                    "thickness_mm": 141.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "0013b990-349d-49cc-b5ce-f337526b89e2",
+            "name": "Kovan \u0130\u00e7",
+            "distance_from_source_mm": 62.25,
+            "depth_mm": 10.75,
+            "outer_width_mm": 300.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 32.0,
+            "aperture_width_exit_mm": 32.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "7d76c43a-ad9b-420c-897b-b9c7a162dd3e",
+                    "material_id": "Al",
+                    "thickness_mm": 10.75,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "bc7318b8-5fbd-499e-a632-db44395d9dd9",
+            "name": "Kovan Kur\u015fun",
+            "distance_from_source_mm": 73.0,
+            "depth_mm": 15.0,
+            "outer_width_mm": 300.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 32.0,
+            "aperture_width_exit_mm": 32.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "b344d60b-713d-45c8-91c8-22a5454052e4",
+                    "material_id": "Pb",
+                    "thickness_mm": 15.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "c998b4e5-e344-421b-8875-6d092f24f410",
+            "name": "Kovan D\u0131\u015f",
+            "distance_from_source_mm": 88.0,
+            "depth_mm": 15.0,
+            "outer_width_mm": 300.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 32.0,
+            "aperture_width_exit_mm": 32.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "7a97261a-ae9b-4f59-b2a4-9a3009fbccbc",
+                    "material_id": "Al",
+                    "thickness_mm": 15.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "b3212030-0f17-4a81-a62a-28fa7c040a71",
+            "name": "ShieldYan",
+            "distance_from_source_mm": 101.84876030682125,
+            "depth_mm": 122.0,
+            "outer_width_mm": 308.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 300.0,
+            "aperture_width_exit_mm": 300.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "e999ebdc-3c15-4627-82d8-24ea34f50713",
+                    "material_id": "Pb",
+                    "thickness_mm": 122.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "37c31d03-c260-4e90-8ce0-55fbee101df0",
+            "name": "\u00e7anak",
+            "distance_from_source_mm": 182.5,
+            "depth_mm": 29.0,
+            "outer_width_mm": 35.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 14.0,
+            "aperture_width_exit_mm": 14.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "a1c4b17b-0bc2-4568-bed0-e852cd7b5ebb",
+                    "material_id": "Al",
+                    "thickness_mm": 29.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "b4183f55-41ff-4e5d-995a-ef0f2511b135",
+            "name": "G\u00f6z1",
+            "distance_from_source_mm": 182.5,
+            "depth_mm": 19.0,
+            "outer_width_mm": 14.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 4.4,
+            "aperture_width_exit_mm": 1.5,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "a63b1b8d-9700-427c-8a5b-0fd09ecffe6f",
+                    "material_id": "W",
+                    "thickness_mm": 19.0,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "bc8f3a18-f78d-42ee-9220-4e5554071a2b",
+            "name": "g\u00f6z2",
+            "distance_from_source_mm": 201.5,
+            "depth_mm": 0.5,
+            "outer_width_mm": 14.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 2.5,
+            "aperture_width_exit_mm": 3.5,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "b18967fa-eea0-49a9-8910-bce398e7fa39",
+                    "material_id": "W",
+                    "thickness_mm": 0.5,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "4a334f93-054d-4dff-8604-db530552737f",
+            "name": "Bronz",
+            "distance_from_source_mm": 202.0,
+            "depth_mm": 9.4,
+            "outer_width_mm": 14.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 4.1,
+            "aperture_width_exit_mm": 4.1,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "a6a57648-60c6-4c44-b683-1b9e98f2e32f",
+                    "material_id": "Bronze",
+                    "thickness_mm": 9.4,
+                    "purpose": "shielding"
+                }
+            ]
+        },
+        {
+            "id": "3dafb46f-3977-411a-be1b-8b54f2799c7f",
+            "name": "Shield",
+            "distance_from_source_mm": 220.0,
+            "depth_mm": 4.0,
+            "outer_width_mm": 300.0,
+            "aperture_type": "slit",
+            "aperture_width_entry_mm": 30.0,
+            "aperture_width_exit_mm": 30.0,
+            "aperture_height_entry_mm": 10.0,
+            "aperture_height_exit_mm": 10.0,
+            "layers": [
+                {
+                    "id": "bb93bede-e740-4212-b5e9-ae3f32fc59fe",
+                    "material_id": "Pb",
+                    "thickness_mm": 4.0,
+                    "purpose": "shielding"
+                }
+            ]
+        }
+    ]
+}

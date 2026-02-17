@@ -97,7 +97,7 @@ def create_pencil_beam_template() -> CollimatorGeometry:
     Layout::
 
         Source (y=0mm)
-        [Stage 0: Kalem Isini]  100x200mm  Pb  y=0
+        [Stage 0: Kalem Işını]  100x200mm  Pb  y=0
         Detector (y=400mm, width=100mm)
 
     Returns:

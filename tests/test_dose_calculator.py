@@ -6,7 +6,14 @@ Benchmark tests: BM-D1 through BM-D10.
 import math
 import pytest
 
-from app.core.dose_calculator import DoseCalculator, _DEFAULT_TUBE_COEFFICIENTS
+import numpy as np
+
+from app.core.dose_calculator import (
+    DoseCalculator,
+    _DEFAULT_TUBE_COEFFICIENTS,
+    air_mu_en_rho,
+    air_mu_en_rho_array,
+)
 from app.core.units import Gy_h_to_µSv_h, Gy_min_to_Gy_h
 from app.models.geometry import SourceConfig
 
@@ -266,3 +273,300 @@ class TestLookupTable:
         calc = DoseCalculator(lookup_table_path=str(table_file))
         Y = calc.tube_output_lookup(50.0, "W", "1mm Al")
         assert Y == 0.047
+
+
+# ── Air μ_en/ρ ──
+
+
+class TestAirMuEnRho:
+    """BM-D8: NIST dry air mass energy-absorption coefficient."""
+
+    def test_BM_D8_1_known_100keV(self):
+        """100 keV → 0.02325 cm²/g (exact NIST table point)."""
+        val = air_mu_en_rho(100.0)
+        assert abs(val - 0.02325) / 0.02325 < 0.001  # <0.1% tolerance
+
+    def test_BM_D8_2_known_10keV(self):
+        """10 keV → 4.742 cm²/g (exact table point)."""
+        val = air_mu_en_rho(10.0)
+        assert abs(val - 4.742) / 4.742 < 0.001
+
+    def test_BM_D8_3_known_1MeV(self):
+        """1000 keV → 0.02789 cm²/g (exact table point)."""
+        val = air_mu_en_rho(1000.0)
+        assert abs(val - 0.02789) / 0.02789 < 0.001
+
+    def test_BM_D8_4_interpolation_50keV(self):
+        """50 keV → between 40 keV (0.06833) and 60 keV (0.03041)."""
+        val = air_mu_en_rho(50.0)
+        assert 0.03041 < val < 0.06833
+
+    def test_BM_D8_5_decreasing_at_low_energy(self):
+        """μ_en/ρ decreases with energy in 10-80 keV range."""
+        val_10 = air_mu_en_rho(10.0)
+        val_40 = air_mu_en_rho(40.0)
+        val_80 = air_mu_en_rho(80.0)
+        assert val_10 > val_40 > val_80
+
+    def test_BM_D8_6_array_matches_scalar(self):
+        """Vectorized version matches scalar for known points."""
+        energies = np.array([10.0, 50.0, 100.0, 500.0, 1000.0])
+        arr = air_mu_en_rho_array(energies)
+        for i, E in enumerate(energies):
+            scalar = air_mu_en_rho(E)
+            assert abs(arr[i] - scalar) / scalar < 0.01
+
+    def test_BM_D8_7_zero_energy(self):
+        """E=0 → returns 0 (safety guard)."""
+        assert air_mu_en_rho(0.0) == 0.0
+
+    def test_BM_D8_8_clamp_above(self):
+        """E=25 MeV (above table max) → clamp to last value."""
+        val = air_mu_en_rho(25000.0)
+        assert abs(val - 0.01311) / 0.01311 < 0.001
+
+
+# ── Spectral dose rate ──
+
+
+@pytest.fixture
+def spectrum_gen():
+    """Create XRaySpectrum with real MaterialService."""
+    from app.core.material_database import MaterialService
+    from app.core.spectrum_models import XRaySpectrum
+    mat_svc = MaterialService()
+    return XRaySpectrum(mat_svc)
+
+
+class TestSpectralDoseRate:
+    """BM-D9: Spectral air kerma dose rate calculation."""
+
+    def test_BM_D9_1_glass_window_matches_empirical(self, spectrum_gen):
+        """Glass window only → spectral ≈ empirical (correction ≈ 1.0).
+
+        The reference baseline in the spectral method uses a 1mm glass
+        window, matching what the empirical formula was calibrated against.
+        """
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA, sdd = 120.0, 8.0, 1000.0
+        # Standard glass window config (matches empirical reference)
+        tc = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[],
+        )
+        d_spectral = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc, "W",
+        )
+        d_empirical = calc.tube_dose_rate_Gy_h(kVp, mA, sdd, "W")
+        # With standard glass window the correction factor should be ~1.0
+        ratio = d_spectral / d_empirical
+        assert 0.95 <= ratio <= 1.05, f"ratio={ratio:.4f}"
+
+    def test_BM_D9_2_Cu_filter_reduces_dose(self, spectrum_gen):
+        """1mm Cu filter → dose decreases significantly vs glass-only."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA, sdd = 120.0, 8.0, 1000.0
+        # Standard glass window only
+        tc_glass = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[],
+        )
+        # Glass window + 1mm Cu filter
+        tc_cu = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[("Cu", 1.0)],
+        )
+        d_glass = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_glass, "W",
+        )
+        d_cu = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_cu, "W",
+        )
+        # Cu filter should reduce dose by 30-80%
+        ratio = d_cu / d_glass
+        assert 0.05 < ratio < 0.70, f"Cu/glass ratio={ratio:.4f}"
+
+    def test_BM_D9_3_Al_filter_reduces_dose(self, spectrum_gen):
+        """2.5mm Al added filter → dose decreases moderately."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA, sdd = 80.0, 10.0, 1000.0
+        tc_glass = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[],
+        )
+        tc_al = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[("Al", 2.5)],
+        )
+        d_glass = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_glass, "W",
+        )
+        d_al = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_al, "W",
+        )
+        # Al filter: moderate attenuation
+        ratio = d_al / d_glass
+        assert 0.10 < ratio < 0.90, f"Al/glass ratio={ratio:.4f}"
+
+    def test_BM_D9_4_thicker_filter_less_dose(self, spectrum_gen):
+        """Thicker Cu filter → lower dose."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA, sdd = 150.0, 5.0, 1000.0
+        doses = []
+        for cu_mm in [0.5, 1.0, 2.0]:
+            tc = TubeConfig(
+                target_id="W", kVp=kVp,
+                window_type="glass", window_thickness_mm=1.0,
+                added_filtration=[("Cu", cu_mm)],
+            )
+            d = calc.tube_dose_rate_spectral_Gy_h(
+                kVp, mA, sdd, spectrum_gen, tc, "W",
+            )
+            doses.append(d)
+        assert doses[0] > doses[1] > doses[2], f"doses={doses}"
+
+    def test_BM_D9_5_inverse_square(self, spectrum_gen):
+        """Spectral dose follows inverse-square law."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA = 120.0, 8.0
+        tc = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[("Al", 1.0)],
+        )
+        d_1000 = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, 1000.0, spectrum_gen, tc, "W",
+        )
+        d_500 = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, 500.0, spectrum_gen, tc, "W",
+        )
+        ratio = d_500 / d_1000
+        assert abs(ratio - 4.0) < 0.01
+
+    def test_BM_D9_6_linear_with_mA(self, spectrum_gen):
+        """Spectral dose scales linearly with tube current."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, sdd = 120.0, 1000.0
+        tc = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[],
+        )
+        d_4 = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, 4.0, sdd, spectrum_gen, tc, "W",
+        )
+        d_8 = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, 8.0, sdd, spectrum_gen, tc, "W",
+        )
+        assert abs(d_8 / d_4 - 2.0) < 0.01
+
+    def test_BM_D9_7_edge_zero_kVp(self, spectrum_gen):
+        """kVp=0 → 0 dose."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        tc = TubeConfig(target_id="W", kVp=0.0)
+        d = calc.tube_dose_rate_spectral_Gy_h(
+            0.0, 8.0, 1000.0, spectrum_gen, tc, "W",
+        )
+        assert d == 0.0
+
+    def test_BM_D9_8_Cu_less_than_Al_attenuation(self, spectrum_gen):
+        """At same thickness, Cu attenuates more than Al."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA, sdd = 120.0, 8.0, 1000.0
+        tc_al = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[("Al", 1.0)],
+        )
+        tc_cu = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[("Cu", 1.0)],
+        )
+        d_al = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_al, "W",
+        )
+        d_cu = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_cu, "W",
+        )
+        # Cu (Z=29) should attenuate more than Al (Z=13) at same thickness
+        assert d_cu < d_al
+
+
+# ── Spectral dispatcher ──
+
+
+class TestSpectralDispatcher:
+    """BM-D10: Dispatcher routes spectral method correctly."""
+
+    def test_BM_D10_1_spectral_via_dispatcher(self, spectrum_gen):
+        """tube_output_method='spectral' → spectral calculation."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        src = SourceConfig(
+            energy_kVp=120.0,
+            tube_current_mA=8.0,
+            tube_output_method="spectral",
+        )
+        tc = TubeConfig(
+            target_id="W", kVp=120.0,
+            window_type="glass", window_thickness_mm=1.0,
+            added_filtration=[("Cu", 0.5)],
+        )
+        dose = calc.calculate_unattenuated_dose(
+            src, 1000.0, spectrum_gen=spectrum_gen, tube_config=tc,
+        )
+        # Should be positive and less than bare empirical (Cu filter)
+        d_emp = calc.tube_dose_rate_Gy_h(120.0, 8.0, 1000.0, "W")
+        assert dose > 0
+        assert dose < d_emp
+
+    def test_BM_D10_2_spectral_without_gen_falls_back(self):
+        """spectral method without spectrum_gen → empirical fallback."""
+        calc = DoseCalculator()
+        src = SourceConfig(
+            energy_kVp=120.0,
+            tube_current_mA=8.0,
+            tube_output_method="spectral",
+        )
+        dose = calc.calculate_unattenuated_dose(src, 1000.0)
+        d_emp = calc.tube_dose_rate_Gy_h(120.0, 8.0, 1000.0, "W")
+        # Falls back to empirical when spectrum_gen is None
+        assert abs(dose - d_emp) < 1e-10
+
+    def test_BM_D10_3_glass_window_reduces_vs_bare(self, spectrum_gen):
+        """Glass window filtration measurably reduces dose vs bare."""
+        from app.core.spectrum_models import TubeConfig
+        calc = DoseCalculator()
+        kVp, mA, sdd = 80.0, 10.0, 1000.0
+        tc_bare = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="none", window_thickness_mm=0.0,
+            added_filtration=[],
+        )
+        tc_glass = TubeConfig(
+            target_id="W", kVp=kVp,
+            window_type="glass", window_thickness_mm=2.0,
+            added_filtration=[],
+        )
+        d_bare = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_bare, "W",
+        )
+        d_glass = calc.tube_dose_rate_spectral_Gy_h(
+            kVp, mA, sdd, spectrum_gen, tc_glass, "W",
+        )
+        # Glass window should reduce dose
+        assert d_glass < d_bare

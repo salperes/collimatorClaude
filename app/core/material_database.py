@@ -33,6 +33,7 @@ _MATERIAL_FILES: dict[str, str] = {
     "SS304": "steel_304.json",
     "SS316": "steel_316.json",
     "Bronze": "bronze.json",
+    "Air": "air.json",
 }
 
 

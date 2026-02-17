@@ -20,10 +20,14 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsSceneContextMenuEvent, QMenu
+from PyQt6.QtWidgets import (
+    QGraphicsScene, QGraphicsSceneContextMenuEvent,
+    QGraphicsSceneMouseEvent, QMenu,
+)
 from PyQt6.QtCore import QRectF, QPointF, QLineF, pyqtSignal
 from PyQt6.QtGui import QColor, QAction
 
+from app.core.i18n import t
 from app.models.geometry import CollimatorType, ApertureConfig
 from app.models.phantom import PhantomType
 from app.constants import MIN_STAGES, MAX_STAGES, MAX_PHANTOMS
@@ -36,6 +40,7 @@ from app.ui.canvas.beam_lines_item import BeamLinesItem
 from app.ui.canvas.dimension_item import DimensionItem
 from app.ui.canvas.phantom_item import PhantomItem
 from app.ui.canvas.resize_handle import HandlePosition
+from app.ui.canvas.isodose_overlay import IsodoseOverlayItem
 from app.ui.canvas.scatter_overlay import ScatterOverlayItem
 from app.ui.styles.colors import BACKGROUND
 
@@ -71,14 +76,17 @@ class CollimatorScene(QGraphicsScene):
         self._source_item = SourceItem()
         self._detector_item = DetectorItem()
         self._beam_lines_item = BeamLinesItem()
+        self._isodose_overlay = IsodoseOverlayItem()
         self._scatter_overlay = ScatterOverlayItem()
         self._dimension_items: list[DimensionItem] = []
         self._dimensions_visible: bool = True
+        self._labels_visible: bool = True
         self._rebuilding: bool = False
 
         self.addItem(self._source_item)
         self.addItem(self._detector_item)
         self.addItem(self._beam_lines_item)
+        self.addItem(self._isodose_overlay)
         self.addItem(self._scatter_overlay)
 
         self._connect_signals()
@@ -484,6 +492,19 @@ class CollimatorScene(QGraphicsScene):
             item.setVisible(visible)
 
     # ------------------------------------------------------------------
+    # Label visibility toggle
+    # ------------------------------------------------------------------
+
+    def set_labels_visible(self, visible: bool) -> None:
+        """Show or hide text labels on source, detector, and phantom items."""
+        self._labels_visible = visible
+        self._source_item.set_label_visible(visible)
+        self._detector_item.set_label_visible(visible)
+        for item in self._phantom_items:
+            item.set_label_visible(visible)
+        self.set_dimensions_visible(visible)
+
+    # ------------------------------------------------------------------
     # Scatter overlay
     # ------------------------------------------------------------------
 
@@ -498,6 +519,22 @@ class CollimatorScene(QGraphicsScene):
     def set_scatter_visible(self, visible: bool) -> None:
         """Toggle scatter overlay visibility."""
         self._scatter_overlay.setVisible(visible)
+
+    # ------------------------------------------------------------------
+    # Isodose overlay
+    # ------------------------------------------------------------------
+
+    def set_isodose_data(self, result) -> None:
+        """Update isodose overlay with computation results."""
+        self._isodose_overlay.set_isodose_data(result)
+
+    def clear_isodose(self) -> None:
+        """Remove isodose overlay."""
+        self._isodose_overlay.clear()
+
+    def set_isodose_visible(self, visible: bool) -> None:
+        """Toggle isodose overlay visibility."""
+        self._isodose_overlay.setVisible(visible)
 
     # ------------------------------------------------------------------
     # Partial updates (signal slots)
@@ -524,6 +561,77 @@ class CollimatorScene(QGraphicsScene):
         """Highlight active stage, dim others."""
         for i, item in enumerate(self._stage_items):
             item.set_selected(i == index)
+
+    # ------------------------------------------------------------------
+    # Click selection (highlight clicked item, deselect others)
+    # ------------------------------------------------------------------
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Select and highlight the clicked item; start undo batch for drag."""
+        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        target = self._resolve_target(item)
+
+        if isinstance(target, StageItem):
+            # Stage selection is handled by stage_clicked signal
+            self._deselect_non_stage_items()
+            # Start undo batch for drag
+            self._controller.begin_undo_batch()
+        elif isinstance(target, SourceItem):
+            self._select_only(target)
+            self._controller.begin_undo_batch()
+        elif isinstance(target, DetectorItem):
+            self._select_only(target)
+            self._controller.begin_undo_batch()
+        elif isinstance(target, PhantomItem):
+            self._select_only(target)
+            self._controller.begin_undo_batch()
+        else:
+            # Clicked empty canvas — deselect all
+            self._deselect_all()
+
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        """End undo batch after drag."""
+        self._controller.end_undo_batch()
+        super().mouseReleaseEvent(event)
+
+    def _deselect_all(self) -> None:
+        """Deselect every selectable item."""
+        for item in self._stage_items:
+            item.set_selected(False)
+        self._source_item.set_selected(False)
+        self._detector_item.set_selected(False)
+        for item in self._phantom_items:
+            item.set_selected(False)
+
+    def _deselect_non_stage_items(self) -> None:
+        """Deselect source, detector, phantoms (stage handles its own)."""
+        self._source_item.set_selected(False)
+        self._detector_item.set_selected(False)
+        for item in self._phantom_items:
+            item.set_selected(False)
+
+    def _select_only(self, target) -> None:
+        """Deselect everything, then select the given item."""
+        self._deselect_all()
+        target.set_selected(True)
+
+    def get_selected_editable(self) -> tuple[str, int] | None:
+        """Return ("stage", idx) or ("phantom", idx) if an editable item is selected.
+
+        Source and detector are NOT editable (cut/copy/paste/delete).
+        Returns None if nothing editable is selected.
+        """
+        # Check stages
+        for item in self._stage_items:
+            if item._selected:
+                return ("stage", item.stage_index)
+        # Check phantoms
+        for item in self._phantom_items:
+            if item._selected:
+                return ("phantom", item.phantom_index)
+        return None
 
     # ------------------------------------------------------------------
     # Phantom updates
@@ -596,13 +704,19 @@ class CollimatorScene(QGraphicsScene):
         item = self.itemAt(event.scenePos(), self.views()[0].transform())
         target = self._resolve_target(item)
 
+        # Highlight the right-clicked item
         if isinstance(target, StageItem):
+            self._deselect_non_stage_items()
+            self.stage_clicked.emit(target.stage_index)
             self._show_stage_menu(event, target)
         elif isinstance(target, PhantomItem):
+            self._select_only(target)
             self._show_phantom_menu(event, target)
         elif target is self._source_item:
+            self._select_only(target)
             self._show_source_menu(event)
         elif target is self._detector_item:
+            self._select_only(target)
             self._show_detector_menu(event)
         else:
             self._show_canvas_menu(event)
@@ -629,36 +743,35 @@ class CollimatorScene(QGraphicsScene):
         menu = QMenu()
 
         # Show properties
-        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+        act_props = menu.addAction(t("context.show_properties", "\u2699  Show Properties"))
 
         menu.addSeparator()
 
         # Add stage after this one
-        act_add = menu.addAction("Stage Ekle (Sonrasina)")
+        act_add = menu.addAction(t("context.add_stage_after", "Add Stage (After)"))
         act_add.setEnabled(len(geo.stages) < MAX_STAGES)
 
         # Delete this stage
-        act_del = menu.addAction("Stage Sil")
+        act_del = menu.addAction(t("context.delete_stage", "Delete Stage"))
         act_del.setEnabled(len(geo.stages) > MIN_STAGES)
 
         menu.addSeparator()
 
-        # Lock / unlock position
-        locked = stage_item.locked
-        act_lock = menu.addAction(
-            "Kilidi Ac" if locked else "Pozisyonu Kilitle"
-        )
+        # Lock / unlock position (checkable)
+        act_lock = menu.addAction(t("context.lock", "Lock"))
+        act_lock.setCheckable(True)
+        act_lock.setChecked(stage_item.locked)
 
-        # X-axis lock toggle
-        x_locked = stage_item.x_locked
-        act_x_lock = menu.addAction(
-            "X Ekseni Ac" if x_locked else "X Ekseni Kilitle"
-        )
+        # X-axis lock toggle (checkable)
+        act_x_lock = menu.addAction(t("context.x_lock", "X-Axis Lock"))
+        act_x_lock.setCheckable(True)
+        act_x_lock.setChecked(stage_item.x_locked)
 
-        # Lock / unlock ALL
         menu.addSeparator()
-        act_lock_all = menu.addAction("Tumunu Kilitle")
-        act_unlock_all = menu.addAction("Tum Kilitleri Ac")
+
+        act_hide_labels = menu.addAction(t("context.hide_labels", "Hide Labels"))
+        act_hide_labels.setCheckable(True)
+        act_hide_labels.setChecked(not self._labels_visible)
 
         chosen = menu.exec(event.screenPos())
         if chosen is act_props:
@@ -669,13 +782,11 @@ class CollimatorScene(QGraphicsScene):
         elif chosen is act_del:
             self._controller.remove_stage(idx)
         elif chosen is act_lock:
-            stage_item.set_locked(not locked)
+            stage_item.set_locked(act_lock.isChecked())
         elif chosen is act_x_lock:
-            stage_item.set_x_locked(not x_locked)
-        elif chosen is act_lock_all:
-            self._lock_all(True)
-        elif chosen is act_unlock_all:
-            self._lock_all(False)
+            stage_item.set_x_locked(act_x_lock.isChecked())
+        elif chosen is act_hide_labels:
+            self.set_labels_visible(not act_hide_labels.isChecked())
 
     # -- Phantom context menu --
 
@@ -686,23 +797,27 @@ class CollimatorScene(QGraphicsScene):
         menu = QMenu()
 
         # Show properties
-        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+        act_props = menu.addAction(t("context.show_properties", "\u2699  Show Properties"))
 
         menu.addSeparator()
 
-        act_del = menu.addAction("Phantom Sil")
+        act_del = menu.addAction(t("context.delete_phantom", "Delete Phantom"))
 
         menu.addSeparator()
 
-        locked = phantom_item.locked
-        act_lock = menu.addAction(
-            "Kilidi Ac" if locked else "Pozisyonu Kilitle"
-        )
+        act_lock = menu.addAction(t("context.lock", "Lock"))
+        act_lock.setCheckable(True)
+        act_lock.setChecked(phantom_item.locked)
 
-        x_locked = phantom_item.x_locked
-        act_x_lock = menu.addAction(
-            "X Ekseni Ac" if x_locked else "X Ekseni Kilitle"
-        )
+        act_x_lock = menu.addAction(t("context.x_lock", "X-Axis Lock"))
+        act_x_lock.setCheckable(True)
+        act_x_lock.setChecked(phantom_item.x_locked)
+
+        menu.addSeparator()
+
+        act_hide_labels = menu.addAction(t("context.hide_labels", "Hide Labels"))
+        act_hide_labels.setCheckable(True)
+        act_hide_labels.setChecked(not self._labels_visible)
 
         chosen = menu.exec(event.screenPos())
         if chosen is act_props:
@@ -710,9 +825,11 @@ class CollimatorScene(QGraphicsScene):
         elif chosen is act_del:
             self._controller.remove_phantom(idx)
         elif chosen is act_lock:
-            phantom_item.set_locked(not locked)
+            phantom_item.set_locked(act_lock.isChecked())
         elif chosen is act_x_lock:
-            phantom_item.set_x_locked(not x_locked)
+            phantom_item.set_x_locked(act_x_lock.isChecked())
+        elif chosen is act_hide_labels:
+            self.set_labels_visible(not act_hide_labels.isChecked())
 
     # -- Source context menu --
 
@@ -720,27 +837,33 @@ class CollimatorScene(QGraphicsScene):
         menu = QMenu()
 
         # Show properties
-        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+        act_props = menu.addAction(t("context.show_properties", "\u2699  Show Properties"))
 
         menu.addSeparator()
 
-        locked = self._source_item.locked
-        act_lock = menu.addAction(
-            "Kilidi Ac" if locked else "Pozisyonu Kilitle"
-        )
+        act_lock = menu.addAction(t("context.lock", "Lock"))
+        act_lock.setCheckable(True)
+        act_lock.setChecked(self._source_item.locked)
 
-        x_locked = self._source_item.x_locked
-        act_x_lock = menu.addAction(
-            "X Ekseni Ac" if x_locked else "X Ekseni Kilitle"
-        )
+        act_x_lock = menu.addAction(t("context.x_lock", "X-Axis Lock"))
+        act_x_lock.setCheckable(True)
+        act_x_lock.setChecked(self._source_item.x_locked)
+
+        menu.addSeparator()
+
+        act_hide_labels = menu.addAction(t("context.hide_labels", "Hide Labels"))
+        act_hide_labels.setCheckable(True)
+        act_hide_labels.setChecked(not self._labels_visible)
 
         chosen = menu.exec(event.screenPos())
         if chosen is act_props:
             self.show_properties_requested.emit("source")
         elif chosen is act_lock:
-            self._source_item.set_locked(not locked)
+            self._source_item.set_locked(act_lock.isChecked())
         elif chosen is act_x_lock:
-            self._source_item.set_x_locked(not x_locked)
+            self._source_item.set_x_locked(act_x_lock.isChecked())
+        elif chosen is act_hide_labels:
+            self.set_labels_visible(not act_hide_labels.isChecked())
 
     # -- Detector context menu --
 
@@ -748,27 +871,33 @@ class CollimatorScene(QGraphicsScene):
         menu = QMenu()
 
         # Show properties
-        act_props = menu.addAction("\u2699  \u00d6zellikleri G\u00f6ster")
+        act_props = menu.addAction(t("context.show_properties", "\u2699  Show Properties"))
 
         menu.addSeparator()
 
-        locked = self._detector_item.locked
-        act_lock = menu.addAction(
-            "Kilidi Ac" if locked else "Pozisyonu Kilitle"
-        )
+        act_lock = menu.addAction(t("context.lock", "Lock"))
+        act_lock.setCheckable(True)
+        act_lock.setChecked(self._detector_item.locked)
 
-        x_locked = self._detector_item.x_locked
-        act_x_lock = menu.addAction(
-            "X Ekseni Ac" if x_locked else "X Ekseni Kilitle"
-        )
+        act_x_lock = menu.addAction(t("context.x_lock", "X-Axis Lock"))
+        act_x_lock.setCheckable(True)
+        act_x_lock.setChecked(self._detector_item.x_locked)
+
+        menu.addSeparator()
+
+        act_hide_labels = menu.addAction(t("context.hide_labels", "Hide Labels"))
+        act_hide_labels.setCheckable(True)
+        act_hide_labels.setChecked(not self._labels_visible)
 
         chosen = menu.exec(event.screenPos())
         if chosen is act_props:
             self.show_properties_requested.emit("detector")
         elif chosen is act_lock:
-            self._detector_item.set_locked(not locked)
+            self._detector_item.set_locked(act_lock.isChecked())
         elif chosen is act_x_lock:
-            self._detector_item.set_x_locked(not x_locked)
+            self._detector_item.set_x_locked(act_x_lock.isChecked())
+        elif chosen is act_hide_labels:
+            self.set_labels_visible(not act_hide_labels.isChecked())
 
     # -- Empty canvas context menu --
 
@@ -777,30 +906,38 @@ class CollimatorScene(QGraphicsScene):
         menu = QMenu()
 
         # Add stage
-        act_add_stage = menu.addAction("Stage Ekle")
+        act_add_stage = menu.addAction(t("context.add_stage", "Add Stage"))
         act_add_stage.setEnabled(len(geo.stages) < MAX_STAGES)
 
         # Add phantom submenu
-        phantom_menu = menu.addMenu("Phantom Ekle")
+        phantom_menu = menu.addMenu(t("context.add_phantom", "Add Phantom"))
         can_add = len(geo.phantoms) < MAX_PHANTOMS
-        act_wire = phantom_menu.addAction("Tel (Wire)")
+        act_wire = phantom_menu.addAction(t("context.wire", "Wire"))
         act_wire.setEnabled(can_add)
-        act_lp = phantom_menu.addAction("Cizgi Cifti (Line Pair)")
+        act_lp = phantom_menu.addAction(t("context.line_pair", "Line Pair"))
         act_lp.setEnabled(can_add)
-        act_grid = phantom_menu.addAction("Grid")
+        act_grid = phantom_menu.addAction(t("context.grid", "Grid"))
         act_grid.setEnabled(can_add)
 
         menu.addSeparator()
 
-        # Lock / unlock all
-        act_lock_all = menu.addAction("Tumunu Kilitle")
-        act_unlock_all = menu.addAction("Tum Kilitleri Ac")
+        # Lock all (checkable — checked when ALL items are locked)
+        all_locked = self._all_locked()
+        act_lock_all = menu.addAction(t("context.lock", "Lock"))
+        act_lock_all.setCheckable(True)
+        act_lock_all.setChecked(all_locked)
+
+        # X-axis lock all (checkable)
+        all_x_locked = self._all_x_locked()
+        act_x_lock_all = menu.addAction(t("context.x_lock", "X-Axis Lock"))
+        act_x_lock_all.setCheckable(True)
+        act_x_lock_all.setChecked(all_x_locked)
 
         menu.addSeparator()
 
-        # X-axis lock for all
-        act_x_lock_all = menu.addAction("Tum X Eksenlerini Ac")
-        act_x_unlock_all = menu.addAction("Tum X Eksenlerini Kilitle")
+        act_hide_labels = menu.addAction(t("context.hide_labels", "Hide Labels"))
+        act_hide_labels.setCheckable(True)
+        act_hide_labels.setChecked(not self._labels_visible)
 
         chosen = menu.exec(event.screenPos())
         if chosen is act_add_stage:
@@ -812,13 +949,11 @@ class CollimatorScene(QGraphicsScene):
         elif chosen is act_grid:
             self._controller.add_phantom(PhantomType.GRID)
         elif chosen is act_lock_all:
-            self._lock_all(True)
-        elif chosen is act_unlock_all:
-            self._lock_all(False)
+            self._lock_all(act_lock_all.isChecked())
         elif chosen is act_x_lock_all:
-            self._x_lock_all(False)
-        elif chosen is act_x_unlock_all:
-            self._x_lock_all(True)
+            self._x_lock_all(act_x_lock_all.isChecked())
+        elif chosen is act_hide_labels:
+            self.set_labels_visible(not act_hide_labels.isChecked())
 
     # -- Lock helpers --
 
@@ -839,3 +974,17 @@ class CollimatorScene(QGraphicsScene):
             item.set_x_locked(locked)
         for item in self._phantom_items:
             item.set_x_locked(locked)
+
+    def _all_locked(self) -> bool:
+        """Return True if every movable item is position-locked."""
+        items: list = [self._source_item, self._detector_item]
+        items.extend(self._stage_items)
+        items.extend(self._phantom_items)
+        return all(item.locked for item in items) if items else False
+
+    def _all_x_locked(self) -> bool:
+        """Return True if every movable item has X-axis locked."""
+        items: list = [self._source_item, self._detector_item]
+        items.extend(self._stage_items)
+        items.extend(self._phantom_items)
+        return all(item.x_locked for item in items) if items else False

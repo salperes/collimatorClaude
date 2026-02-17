@@ -11,8 +11,10 @@ import math
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QDoubleSpinBox, QLineEdit, QFrame,
+    QPushButton, QLineEdit, QFrame,
 )
+
+from app.ui.widgets.smart_spinbox import SmartDoubleSpinBox
 from PyQt6.QtCore import Qt, QSignalBlocker
 
 from app.constants import MATERIAL_IDS, MAX_STAGES, MIN_STAGES, MATERIAL_MIME_TYPE
@@ -125,24 +127,29 @@ class LayerPanel(QWidget):
         purpose_row.addWidget(self._combo_purpose)
         props_layout.addLayout(purpose_row)
 
+        # Dimensions sub-header
+        self._lbl_dim_header = QLabel(t("panels.dimensions_mm", "Dimensions (mm)"))
+        self._lbl_dim_header.setStyleSheet(
+            "color: #94A3B8; font-size: 7pt; font-weight: bold; margin-top: 2px;"
+        )
+        props_layout.addWidget(self._lbl_dim_header)
+
         # Dimensions row (G = width, T = thickness/height)
         dim_row = QHBoxLayout()
         self._lbl_width = self._make_label(t("panels.outer_width", "W (width):"))
         dim_row.addWidget(self._lbl_width)
-        self._spin_width = QDoubleSpinBox()
+        self._spin_width = SmartDoubleSpinBox()
         self._spin_width.setRange(0.5, 1000)
-        self._spin_width.setSuffix(" mm")
-        self._spin_width.setDecimals(1)
-        self._spin_width.setStyleSheet("font-size: 8pt;")
+        self._spin_width.setSingleStep(0.5)
+        self._spin_width.setDecimals(2)
         dim_row.addWidget(self._spin_width)
 
         self._lbl_height = self._make_label(t("panels.outer_height", "T (thickness):"))
         dim_row.addWidget(self._lbl_height)
-        self._spin_height = QDoubleSpinBox()
+        self._spin_height = SmartDoubleSpinBox()
         self._spin_height.setRange(0.5, 1000)
-        self._spin_height.setSuffix(" mm")
-        self._spin_height.setDecimals(1)
-        self._spin_height.setStyleSheet("font-size: 8pt;")
+        self._spin_height.setSingleStep(0.5)
+        self._spin_height.setDecimals(2)
         dim_row.addWidget(self._spin_height)
         props_layout.addLayout(dim_row)
 
@@ -150,20 +157,18 @@ class LayerPanel(QWidget):
         pos_row = QHBoxLayout()
         self._lbl_x = self._make_label(t("panels.x_offset", "X:"))
         pos_row.addWidget(self._lbl_x)
-        self._spin_x_offset = QDoubleSpinBox()
+        self._spin_x_offset = SmartDoubleSpinBox()
         self._spin_x_offset.setRange(-2000, 2000)
-        self._spin_x_offset.setSuffix(" mm")
-        self._spin_x_offset.setDecimals(1)
-        self._spin_x_offset.setStyleSheet("font-size: 8pt;")
+        self._spin_x_offset.setSingleStep(1.0)
+        self._spin_x_offset.setDecimals(2)
         pos_row.addWidget(self._spin_x_offset)
 
         self._lbl_y = self._make_label(t("panels.y_pos", "Y:"))
         pos_row.addWidget(self._lbl_y)
-        self._spin_y_position = QDoubleSpinBox()
+        self._spin_y_position = SmartDoubleSpinBox()
         self._spin_y_position.setRange(-2000, 2000)
-        self._spin_y_position.setSuffix(" mm")
-        self._spin_y_position.setDecimals(1)
-        self._spin_y_position.setStyleSheet("font-size: 8pt;")
+        self._spin_y_position.setSingleStep(1.0)
+        self._spin_y_position.setDecimals(2)
         pos_row.addWidget(self._spin_y_position)
         props_layout.addLayout(pos_row)
 
@@ -187,7 +192,7 @@ class LayerPanel(QWidget):
         layout.addWidget(props)
 
         # --- Aperture ---
-        self._lbl_aperture_header = QLabel("Aperture")
+        self._lbl_aperture_header = QLabel(t("panels.aperture_mm", "Aperture (mm)"))
         self._lbl_aperture_header.setStyleSheet(
             "color: #F8FAFC; font-weight: bold; font-size: 8pt;"
         )
@@ -203,11 +208,11 @@ class LayerPanel(QWidget):
         self._fan_row = QHBoxLayout()
         self._fan_row_label = self._make_label(t("aperture.angle", "Angle:"))
         self._fan_row.addWidget(self._fan_row_label)
-        self._spin_fan_angle = QDoubleSpinBox()
+        self._spin_fan_angle = SmartDoubleSpinBox()
         self._spin_fan_angle.setRange(1, 90)
-        self._spin_fan_angle.setSuffix(" \u00B0")
-        self._spin_fan_angle.setDecimals(1)
-        self._spin_fan_angle.setStyleSheet("font-size: 8pt;")
+        self._spin_fan_angle.setSuffix("\u00B0")
+        self._spin_fan_angle.setDecimals(2)
+        self._spin_fan_angle.setSingleStep(0.5)
         self._fan_row.addWidget(self._spin_fan_angle)
         ap_layout.addLayout(self._fan_row)
 
@@ -215,11 +220,10 @@ class LayerPanel(QWidget):
         self._fan_sw_row = QHBoxLayout()
         self._fan_sw_label = self._make_label(t("aperture.slit_width", "Slit:"))
         self._fan_sw_row.addWidget(self._fan_sw_label)
-        self._spin_fan_slit = QDoubleSpinBox()
+        self._spin_fan_slit = SmartDoubleSpinBox()
         self._spin_fan_slit.setRange(0.1, 100)
-        self._spin_fan_slit.setSuffix(" mm")
-        self._spin_fan_slit.setDecimals(1)
-        self._spin_fan_slit.setStyleSheet("font-size: 8pt;")
+        self._spin_fan_slit.setDecimals(2)
+        self._spin_fan_slit.setSingleStep(0.5)
         self._fan_sw_row.addWidget(self._spin_fan_slit)
         ap_layout.addLayout(self._fan_sw_row)
 
@@ -227,11 +231,10 @@ class LayerPanel(QWidget):
         self._pencil_row = QHBoxLayout()
         self._pencil_label = self._make_label(t("aperture.diameter", "Diameter:"))
         self._pencil_row.addWidget(self._pencil_label)
-        self._spin_pencil_d = QDoubleSpinBox()
+        self._spin_pencil_d = SmartDoubleSpinBox()
         self._spin_pencil_d.setRange(0.1, 100)
-        self._spin_pencil_d.setSuffix(" mm")
-        self._spin_pencil_d.setDecimals(1)
-        self._spin_pencil_d.setStyleSheet("font-size: 8pt;")
+        self._spin_pencil_d.setDecimals(2)
+        self._spin_pencil_d.setSingleStep(0.5)
         self._pencil_row.addWidget(self._spin_pencil_d)
         ap_layout.addLayout(self._pencil_row)
 
@@ -239,11 +242,10 @@ class LayerPanel(QWidget):
         self._slit_in_row = QHBoxLayout()
         self._slit_in_label = self._make_label(t("aperture.entry", "Entry:"))
         self._slit_in_row.addWidget(self._slit_in_label)
-        self._spin_slit_in = QDoubleSpinBox()
+        self._spin_slit_in = SmartDoubleSpinBox()
         self._spin_slit_in.setRange(0.1, 200)
-        self._spin_slit_in.setSuffix(" mm")
         self._spin_slit_in.setDecimals(2)
-        self._spin_slit_in.setStyleSheet("font-size: 8pt;")
+        self._spin_slit_in.setSingleStep(0.5)
         self._slit_in_row.addWidget(self._spin_slit_in)
         ap_layout.addLayout(self._slit_in_row)
 
@@ -251,11 +253,10 @@ class LayerPanel(QWidget):
         self._slit_out_row = QHBoxLayout()
         self._slit_out_label = self._make_label(t("aperture.exit", "Exit:"))
         self._slit_out_row.addWidget(self._slit_out_label)
-        self._spin_slit_out = QDoubleSpinBox()
+        self._spin_slit_out = SmartDoubleSpinBox()
         self._spin_slit_out.setRange(0.1, 200)
-        self._spin_slit_out.setSuffix(" mm")
         self._spin_slit_out.setDecimals(2)
-        self._spin_slit_out.setStyleSheet("font-size: 8pt;")
+        self._spin_slit_out.setSingleStep(0.5)
         self._slit_out_row.addWidget(self._spin_slit_out)
         ap_layout.addLayout(self._slit_out_row)
 
@@ -333,6 +334,9 @@ class LayerPanel(QWidget):
                     if self._combo_purpose.itemData(i) == current_purpose:
                         self._combo_purpose.setCurrentIndex(i)
                         break
+
+        self._lbl_dim_header.setText(t("panels.dimensions_mm", "Dimensions (mm)"))
+        self._lbl_aperture_header.setText(t("panels.aperture_mm", "Aperture (mm)"))
 
         # Aperture labels
         self._fan_row_label.setText(t("aperture.angle", "Angle:"))
@@ -501,7 +505,7 @@ class LayerPanel(QWidget):
 
     @staticmethod
     def _set_row_visible(
-        label: QLabel, spin: QDoubleSpinBox, visible: bool,
+        label: QLabel, spin: SmartDoubleSpinBox, visible: bool,
     ) -> None:
         label.setVisible(visible)
         spin.setVisible(visible)

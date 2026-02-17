@@ -43,11 +43,11 @@ class StageItem(QGraphicsItem):
         self._aperture_item: ApertureItem | None = None
         self._handles: list[ResizeHandle] = []
         self._handle_callback = None  # set by scene
-        self._locked: bool = False
+        self._locked: bool = True
         self._x_locked: bool = True  # X-axis locked by default
         self._dragging: bool = False
 
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
 

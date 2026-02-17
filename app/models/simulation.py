@@ -48,8 +48,15 @@ class SimulationConfig:
     energy_points: list[float] = field(default_factory=list)
     num_rays: int = 5000
     include_buildup: bool = True
+    include_air: bool = False
+    include_inverse_sq: bool = False
     include_scatter: bool = False
     compton_config: ComptonConfig = field(default_factory=ComptonConfig)
+    compute_isodose: bool = False
+    isodose_nx: int = 120
+    isodose_ny: int = 80
+    isodose_include_air: bool = True
+    isodose_include_inverse_sq: bool = True
 
 
 # ── Phase 4: Ray-tracing results ──
@@ -160,3 +167,4 @@ class SimulationResult:
     include_buildup: bool = False
     scatter_result: object | None = None  # ScatterResult (Phase 7, optional)
     unattenuated_dose_rate_Gy_h: float = 0.0  # Open-beam dose at detector [Gy/h]
+    isodose_result: object | None = None  # IsodoseResult (optional)

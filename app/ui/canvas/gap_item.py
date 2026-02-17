@@ -27,7 +27,12 @@ class GapItem(QGraphicsItem):
         self._gap_index = gap_index
         self._rect = QRectF()
         self._gap_mm: float = 0.0
+        self._label_visible: bool = True
         self.setZValue(-5)
+
+    def set_label_visible(self, visible: bool) -> None:
+        self._label_visible = visible
+        self.update()
 
     def set_gap(self, rect: QRectF, gap_mm: float) -> None:
         """Set gap rectangle and distance value."""
@@ -59,8 +64,9 @@ class GapItem(QGraphicsItem):
         painter.drawRect(self._rect)
 
         # Distance label
-        painter.setPen(QColor(TEXT_SECONDARY))
-        font = QFont("Segoe UI", 8)
-        painter.setFont(font)
-        label = f"{self._gap_mm:.1f} mm"
-        painter.drawText(self._rect, Qt.AlignmentFlag.AlignCenter, label)
+        if self._label_visible:
+            painter.setPen(QColor(TEXT_SECONDARY))
+            font = QFont("Segoe UI", 8)
+            painter.setFont(font)
+            label = f"{self._gap_mm:.1f} mm"
+            painter.drawText(self._rect, Qt.AlignmentFlag.AlignCenter, label)

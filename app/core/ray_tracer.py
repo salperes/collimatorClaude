@@ -127,6 +127,7 @@ def aperture_half_width_at_y(
     ctype: CollimatorType,
     y_local_cm: float,
     stage_height_cm: float,
+    source_distance_cm: float = 0.0,
 ) -> float:
     """Aperture half-width at a given Y position within a stage [cm].
 
@@ -135,14 +136,26 @@ def aperture_half_width_at_y(
         ctype: Collimator type.
         y_local_cm: Local Y within stage [cm], 0 = top (entry).
         stage_height_cm: Total stage height [cm].
+        source_distance_cm: Distance from source to stage top (entry) [cm].
+            When > 0, fan-beam uses source-focused model where aperture
+            walls converge toward source. When 0, falls back to fan_angle
+            taper mode (legacy).
     Returns:
         Aperture half-width at this Y [cm]. 0 means aperture is closed
         at this Y position.
     """
     if ctype == CollimatorType.FAN_BEAM:
-        half_angle_rad = deg_to_rad((aperture.fan_angle or 30.0) / 2.0)
         slit_half_cm = mm_to_cm((aperture.fan_slit_width or 2.0) / 2.0)
-        return slit_half_cm + y_local_cm * math.tan(half_angle_rad)
+        if source_distance_cm > 1e-6:
+            # Source-focused: aperture walls converge toward source.
+            # At entry (y_local=0): half_width = slit_half
+            # At depth y_local: half_width scales with distance from source
+            ratio = (source_distance_cm + y_local_cm) / source_distance_cm
+            return slit_half_cm * ratio
+        else:
+            # Fallback: fan_angle as local wall taper angle
+            half_angle_rad = deg_to_rad((aperture.fan_angle or 30.0) / 2.0)
+            return slit_half_cm + y_local_cm * math.tan(half_angle_rad)
 
     elif ctype == CollimatorType.SLIT:
         slit_half_cm = mm_to_cm((aperture.slit_width or 2.0) / 2.0)
@@ -212,6 +225,7 @@ class RayTracer:
         for i, stage in enumerate(geometry.stages):
             layout = layouts[i]
             stage_h_cm = layout.y_bottom - layout.y_top
+            src_dist_cm = max(layout.y_top - ray.origin_y, 0.0)
 
             # Ray X at stage entry and exit (local to stage center)
             x_top = _ray_x_at_y(ray, layout.y_top) - layout.x_center
@@ -226,9 +240,11 @@ class RayTracer:
 
             # Check aperture passage at entry and exit
             ap_half_top = aperture_half_width_at_y(
-                stage.aperture, geometry.type, 0.0, stage_h_cm)
+                stage.aperture, geometry.type, 0.0, stage_h_cm,
+                src_dist_cm)
             ap_half_bot = aperture_half_width_at_y(
-                stage.aperture, geometry.type, stage_h_cm, stage_h_cm)
+                stage.aperture, geometry.type, stage_h_cm, stage_h_cm,
+                src_dist_cm)
 
             if abs(x_top) < ap_half_top and abs(x_bot) < ap_half_bot:
                 # For fan-beam with linear taper, checking endpoints suffices
@@ -240,7 +256,7 @@ class RayTracer:
 
             # Ray hits shielding → compute layer intersections via sampling
             intersections = self._compute_layer_intersections(
-                ray, stage, layout, geometry.type,
+                ray, stage, layout, geometry.type, src_dist_cm,
             )
             total_path = sum(ix.path_length for ix in intersections)
 
@@ -334,6 +350,7 @@ class RayTracer:
         stage,
         layout: StageLayout,
         ctype: CollimatorType,
+        source_distance_cm: float = 0.0,
     ) -> list[LayerIntersection]:
         """Compute material path length via Y-sampling (solid body).
 
@@ -346,6 +363,7 @@ class RayTracer:
             stage: CollimatorStage (mm units).
             layout: Precomputed stage layout (cm units).
             ctype: Collimator type.
+            source_distance_cm: Distance from source to stage top [cm].
         Returns:
             List with single LayerIntersection for the stage material [cm].
         """
@@ -363,6 +381,7 @@ class RayTracer:
 
             ap_half = aperture_half_width_at_y(
                 stage.aperture, ctype, y_local, stage_h_cm,
+                source_distance_cm,
             )
 
             # In aperture → skip

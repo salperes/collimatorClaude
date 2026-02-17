@@ -3,6 +3,11 @@
 Converts source parameters (tube current, LINAC PPS/dose) into
 absolute dose rate at the detector plane using inverse-square law.
 
+Supports three tube output methods:
+  - **empirical**: Y = C * kVp^n power law (filtration ignored)
+  - **spectral**: Spectrum-weighted air kerma with filtration correction
+  - **lookup**: Interpolation from external table
+
 All internal calculations use core units:
     - Distance: cm (converted from mm inputs)
     - Energy: keV
@@ -17,9 +22,14 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from app.models.geometry import SourceConfig
+
+if TYPE_CHECKING:
+    from app.core.spectrum_models import TubeConfig, XRaySpectrum
 
 
 @dataclass
@@ -48,12 +58,100 @@ _DEFAULT_TUBE_COEFFICIENTS: dict[str, TubeOutputCoefficients] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# NIST Dry Air mass energy-absorption coefficients μ_en/ρ [cm²/g]
+# Source: NIST XCOM — Dry Air (near sea level) composition:
+#   N 0.7553, O 0.2318, Ar 0.0128, C 0.0001
+# Energies [keV], μ_en/ρ [cm²/g]
+# ---------------------------------------------------------------------------
+_AIR_MU_EN_DATA: list[tuple[float, float]] = [
+    (1.0, 3599.0),
+    (1.5, 1188.0),
+    (2.0, 526.2),
+    (3.0, 161.4),
+    (4.0, 69.23),
+    (5.0, 36.07),
+    (6.0, 21.16),
+    (8.0, 9.446),
+    (10.0, 4.742),
+    (15.0, 1.334),
+    (20.0, 0.5389),
+    (30.0, 0.1537),
+    (40.0, 0.06833),
+    (50.0, 0.04098),
+    (60.0, 0.03041),
+    (80.0, 0.02407),
+    (100.0, 0.02325),
+    (150.0, 0.02496),
+    (200.0, 0.02672),
+    (300.0, 0.02872),
+    (400.0, 0.02949),
+    (500.0, 0.02966),
+    (600.0, 0.02953),
+    (800.0, 0.02882),
+    (1000.0, 0.02789),
+    (1500.0, 0.02547),
+    (2000.0, 0.02345),
+    (3000.0, 0.02057),
+    (4000.0, 0.01870),
+    (5000.0, 0.01740),
+    (6000.0, 0.01647),
+    (8000.0, 0.01525),
+    (10000.0, 0.01450),
+    (15000.0, 0.01353),
+    (20000.0, 0.01311),
+]
+
+# Pre-compute log arrays for fast interpolation
+_AIR_LOG_E = np.log(np.array([e for e, _ in _AIR_MU_EN_DATA]))
+_AIR_LOG_MU = np.log(np.array([m for _, m in _AIR_MU_EN_DATA]))
+
+
+def air_mu_en_rho(energy_keV: float) -> float:
+    """Mass energy-absorption coefficient of dry air [cm²/g].
+
+    Log-log interpolation of NIST reference data.
+
+    Args:
+        energy_keV: Photon energy [keV].
+
+    Returns:
+        μ_en/ρ for dry air [cm²/g].
+    """
+    if energy_keV <= 0:
+        return 0.0
+    log_e = math.log(energy_keV)
+    # Clamp to data range
+    if log_e <= _AIR_LOG_E[0]:
+        return _AIR_MU_EN_DATA[0][1]
+    if log_e >= _AIR_LOG_E[-1]:
+        return _AIR_MU_EN_DATA[-1][1]
+    # Binary search + linear interpolation in log-log space
+    log_mu = float(np.interp(log_e, _AIR_LOG_E, _AIR_LOG_MU))
+    return math.exp(log_mu)
+
+
+def air_mu_en_rho_array(energies_keV: np.ndarray) -> np.ndarray:
+    """Vectorized μ_en/ρ for dry air [cm²/g].
+
+    Args:
+        energies_keV: Photon energies [keV], 1D array.
+
+    Returns:
+        μ_en/ρ array [cm²/g], same shape.
+    """
+    log_e = np.log(np.clip(energies_keV, 1.0, 20000.0))
+    log_mu = np.interp(log_e, _AIR_LOG_E, _AIR_LOG_MU)
+    return np.exp(log_mu)
+
+
 class DoseCalculator:
     """Calculates absolute dose rate at the detector plane.
 
     Supports two source modes:
-    - **Tube (kVp)**: Empirical power-law or lookup-table tube output,
-      scaled by tube current and inverse-square to detector distance.
+    - **Tube (kVp)**: Empirical power-law, spectral air kerma,
+      or lookup-table tube output, scaled by tube current and
+      inverse-square to detector distance.
     - **LINAC (MeV)**: Linear PPS-dose model with inverse-square from
       isocentric reference distance (1 m) to detector.
 
@@ -66,7 +164,7 @@ class DoseCalculator:
             self._load_lookup_table(Path(lookup_table_path))
 
     # ------------------------------------------------------------------
-    # Tube mode
+    # Tube mode — empirical
     # ------------------------------------------------------------------
 
     def tube_output_empirical(
@@ -130,8 +228,8 @@ class DoseCalculator:
 
         for i in range(len(kvp_vals) - 1):
             if kvp_vals[i] <= kVp <= kvp_vals[i + 1]:
-                t = (kVp - kvp_vals[i]) / (kvp_vals[i + 1] - kvp_vals[i])
-                return y_vals[i] + t * (y_vals[i + 1] - y_vals[i])
+                frac = (kVp - kvp_vals[i]) / (kvp_vals[i + 1] - kvp_vals[i])
+                return y_vals[i] + frac * (y_vals[i + 1] - y_vals[i])
 
         return self.tube_output_empirical(kVp, target_id)
 
@@ -178,6 +276,88 @@ class DoseCalculator:
         dose_rate_det_mGy_s = dose_rate_1m_mGy_s / (sdd_m ** 2)
 
         # mGy/s → Gy/h: × 3600 / 1000 = × 3.6
+        return dose_rate_det_mGy_s * 3.6
+
+    # ------------------------------------------------------------------
+    # Tube mode — spectral air kerma
+    # ------------------------------------------------------------------
+
+    def tube_dose_rate_spectral_Gy_h(
+        self,
+        kVp: float,
+        tube_current_mA: float,
+        sdd_mm: float,
+        spectrum_gen: XRaySpectrum,
+        tube_config: TubeConfig,
+        target_id: str = "W",
+    ) -> float:
+        """Spectral air kerma rate at detector [Gy/h].
+
+        Computes a filtration-corrected dose using the spectral ratio
+        method: empirical output × (filtered kerma / unfiltered kerma).
+
+        Pipeline:
+          1. Generate unfiltered spectrum → compute S_unfilt = Σ φ(E) × E × μ_en/ρ_air(E)
+          2. Generate filtered spectrum → compute S_filt = Σ φ(E) × E × μ_en/ρ_air(E)
+          3. Filtration correction = S_filt / S_unfilt
+          4. Y_corrected = Y_empirical × correction
+          5. Apply tube current and inverse-square
+
+        This preserves empirical accuracy while properly accounting for
+        filtration-induced spectral hardening and output reduction.
+
+        Args:
+            kVp: Tube voltage [kVp].
+            tube_current_mA: Tube current [mA].
+            sdd_mm: Source-to-detector distance [mm].
+            spectrum_gen: XRaySpectrum instance for spectrum generation.
+            tube_config: TubeConfig with filtration settings.
+            target_id: Anode target material.
+
+        Returns:
+            Unattenuated dose rate at detector [Gy/h].
+        """
+        if sdd_mm <= 0 or tube_current_mA <= 0 or kVp <= 0:
+            return 0.0
+
+        # Step 1: Reference spectrum kerma integral (raw, not normalized)
+        # The empirical formula Y = C × kVp^n is calibrated for a standard
+        # tube with inherent filtration (~1mm Al-equivalent glass window).
+        # Use this as the reference baseline for the spectral ratio.
+        from app.core.spectrum_models import TubeConfig as TC
+        ref_config = TC(
+            target_id=tube_config.target_id,
+            kVp=kVp,
+            window_type="glass",
+            window_thickness_mm=1.0,
+            added_filtration=[],
+        )
+        E_ref, phi_ref = spectrum_gen.generate(ref_config, normalize=False)
+        mu_en_ref = air_mu_en_rho_array(E_ref)
+        S_ref = float(np.sum(phi_ref * E_ref * mu_en_ref))
+
+        # Step 2: User's filtered spectrum kerma integral (raw, not normalized)
+        E_filt, phi_filt = spectrum_gen.generate(tube_config, normalize=False)
+        mu_en_filt = air_mu_en_rho_array(E_filt)
+        S_filt = float(np.sum(phi_filt * E_filt * mu_en_filt))
+
+        # Step 3: Filtration correction factor
+        # correction ≈ 1.0 when user has just a glass window (matching empirical)
+        # correction < 1.0 when user adds extra filtration (Cu, Al, etc.)
+        if S_ref <= 0:
+            return 0.0
+        correction = S_filt / S_ref
+
+        # Step 4: Corrected empirical output
+        Y_empirical = self.tube_output_empirical(kVp, target_id)
+        Y_corrected = Y_empirical * correction
+
+        # Step 5: Current scaling + inverse square + unit conversion
+        sdd_m = sdd_mm / 1000.0
+        dose_rate_1m_mGy_s = Y_corrected * tube_current_mA
+        dose_rate_det_mGy_s = dose_rate_1m_mGy_s / (sdd_m ** 2)
+
+        # mGy/s → Gy/h
         return dose_rate_det_mGy_s * 3.6
 
     # ------------------------------------------------------------------
@@ -235,6 +415,8 @@ class DoseCalculator:
         self,
         source: SourceConfig,
         sdd_mm: float,
+        spectrum_gen: XRaySpectrum | None = None,
+        tube_config: TubeConfig | None = None,
     ) -> float:
         """Compute unattenuated dose rate at detector plane [Gy/h].
 
@@ -244,17 +426,29 @@ class DoseCalculator:
         Args:
             source: Source configuration.
             sdd_mm: Source-to-detector distance [mm].
+            spectrum_gen: XRaySpectrum (needed for "spectral" method).
+            tube_config: TubeConfig (needed for "spectral" method).
 
         Returns:
             Unattenuated dose rate at detector [Gy/h].
             Returns 0.0 if source mode is indeterminate.
         """
         if source.energy_kVp is not None:
+            method = source.tube_output_method
+            if method == "spectral" and spectrum_gen and tube_config:
+                return self.tube_dose_rate_spectral_Gy_h(
+                    kVp=source.energy_kVp,
+                    tube_current_mA=source.tube_current_mA,
+                    sdd_mm=sdd_mm,
+                    spectrum_gen=spectrum_gen,
+                    tube_config=tube_config,
+                    target_id=tube_config.target_id,
+                )
             return self.tube_dose_rate_Gy_h(
                 kVp=source.energy_kVp,
                 tube_current_mA=source.tube_current_mA,
                 sdd_mm=sdd_mm,
-                method=source.tube_output_method,
+                method=method,
             )
         elif source.energy_MeV is not None:
             return self.linac_dose_rate_Gy_h(

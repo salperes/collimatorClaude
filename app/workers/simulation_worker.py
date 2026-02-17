@@ -48,6 +48,8 @@ class SimulationWorker(QThread):
         self._energy_keV: float = 100.0
         self._num_rays: int = 360
         self._include_buildup: bool = True
+        self._include_air: bool = False
+        self._include_inverse_sq: bool = False
         self._cancelled = False
 
     def setup(
@@ -56,6 +58,8 @@ class SimulationWorker(QThread):
         energy_keV: float,
         num_rays: int = 360,
         include_buildup: bool = True,
+        include_air: bool = False,
+        include_inverse_sq: bool = False,
     ) -> None:
         """Configure simulation parameters before starting.
 
@@ -65,6 +69,8 @@ class SimulationWorker(QThread):
         self._energy_keV = energy_keV
         self._num_rays = num_rays
         self._include_buildup = include_buildup
+        self._include_air = include_air
+        self._include_inverse_sq = include_inverse_sq
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -88,6 +94,8 @@ class SimulationWorker(QThread):
                 energy_keV=self._energy_keV,
                 num_rays=self._num_rays,
                 include_buildup=self._include_buildup,
+                include_air=self._include_air,
+                include_inverse_sq=self._include_inverse_sq,
                 progress_callback=_progress_callback,
             )
 

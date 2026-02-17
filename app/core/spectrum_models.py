@@ -158,6 +158,7 @@ class XRaySpectrum:
         self,
         config: TubeConfig,
         num_bins: int = 200,
+        normalize: bool = True,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         """Generate a filtered X-ray tube spectrum.
 
@@ -166,14 +167,16 @@ class XRaySpectrum:
           2. + Characteristic lines (Gaussian peaks, if kVp > K-edge)
           3. x Window filtration (Beer-Lambert)
           4. x Added filtration (Beer-Lambert)
-          5. Normalize so sum(phi) = 1
+          5. Normalize so sum(phi) = 1 (if normalize=True)
 
         Args:
             config: Tube configuration.
             num_bins: Number of energy bins.
+            normalize: If True, normalize so sum(phi) = 1.
+                Set to False for absolute fluence comparisons.
 
         Returns:
-            (energies_keV, phi) — bin centers [keV] and normalized intensities.
+            (energies_keV, phi) — bin centers [keV] and intensities.
         """
         target = self._targets[config.target_id]
         kVp = config.kVp
@@ -207,11 +210,12 @@ class XRaySpectrum:
                 phi, energies, mat_id, thickness_mm,
             )
 
-        # Step 5: Normalize
+        # Step 5: Normalize (optional)
         phi = np.maximum(phi, 0.0)
-        total = phi.sum()
-        if total > 0:
-            phi /= total
+        if normalize:
+            total = phi.sum()
+            if total > 0:
+                phi /= total
 
         return energies, phi
 

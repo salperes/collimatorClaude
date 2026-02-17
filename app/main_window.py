@@ -18,6 +18,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSettings, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut
 
+import json
+import logging
+
 import numpy as np
 
 from app.constants import (
@@ -25,6 +28,7 @@ from app.constants import (
     DEFAULT_NUM_RAYS,
 )
 from app.core.beam_simulation import BeamSimulation
+from app.core.serializers import geometry_to_dict, dict_to_geometry
 from app.core.build_up_factors import BuildUpFactors
 from app.core.dose_calculator import DoseCalculator
 from app.core.i18n import t, TranslationManager
@@ -68,8 +72,11 @@ from app.workers.projection_worker import ProjectionWorker
 from app.workers.simulation_worker import SimulationWorker
 from app.core.klein_nishina_sampler import KleinNishinaSampler
 from app.core.scatter_tracer import ScatterTracer
+from app.core.isodose_engine import IsodoseEngine
 from app.workers.scatter_worker import ScatterWorker
+from app.workers.isodose_worker import IsodoseWorker
 from app.models.simulation import ComptonConfig
+from app.ui.charts.isodose_chart import IsodoseChartWidget
 
 
 class MainWindow(QMainWindow):
@@ -85,6 +92,8 @@ class MainWindow(QMainWindow):
         self._material_service = MaterialService()
         self._physics_engine = PhysicsEngine(self._material_service)
         self._projection_engine = ProjectionEngine(self._physics_engine)
+        from app.core.spectrum_models import XRaySpectrum
+        self._xray_spectrum = XRaySpectrum(self._material_service)
         self._projection_worker: ProjectionWorker | None = None
 
         # Phase 4: Ray-tracing services
@@ -112,6 +121,10 @@ class MainWindow(QMainWindow):
         self._scatter_worker: ScatterWorker | None = None
         self._last_scatter_result = None
 
+        # Phase 8: Isodose map
+        self._isodose_engine = IsodoseEngine(self._physics_engine)
+        self._isodose_worker: IsodoseWorker | None = None
+
         # Phase 6: Database and design state
         self._db_manager = DatabaseManager()
         self._db_manager.initialize_database()
@@ -124,6 +137,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._connect_signals()
         self._restore_state()
+        self._restore_session()
         self._initial_fit_done = False
         self._update_title()
 
@@ -242,6 +256,7 @@ class MainWindow(QMainWindow):
         self._chart_tabs.setTabText(5, t("charts.compton", "Compton"))
         self._chart_tabs.setTabText(6, t("charts.spr_tab", "SPR Profile"))
         self._chart_tabs.setTabText(7, t("charts.spectrum", "Spectrum"))
+        self._chart_tabs.setTabText(8, t("charts.isodose", "Isodose"))
 
         # LINAC warning
         self._linac_warning.setText(
@@ -365,6 +380,11 @@ class MainWindow(QMainWindow):
         # G-10: Threshold edit
         self._toolbar.threshold_edit_requested.connect(self._on_edit_thresholds)
 
+        # Phase 8: Isodose toggle → canvas overlay visibility
+        self._toolbar.isodose_button.toggled.connect(
+            self._scene.set_isodose_visible
+        )
+
         # Phase 8: Validation
         self._toolbar.validation_requested.connect(self._on_run_validation)
 
@@ -383,12 +403,27 @@ class MainWindow(QMainWindow):
         self._toolbar.export_requested.connect(self._on_export)
         self._toolbar.version_history_requested.connect(self._on_version_history)
 
-        # Keyboard shortcuts
+        # Edit menu signals
+        self._toolbar.undo_requested.connect(self._on_undo)
+        self._toolbar.redo_requested.connect(self._on_redo)
+        self._toolbar.cut_requested.connect(self._on_cut)
+        self._toolbar.copy_requested.connect(self._on_copy)
+        self._toolbar.paste_requested.connect(self._on_paste)
+        self._toolbar.delete_requested.connect(self._on_delete)
+
+        # Undo state → toolbar enable/disable
+        self._controller.undo_state_changed.connect(self._update_edit_menu_state)
+
+        # Keyboard shortcuts — file
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self._on_new)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self._on_open)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._on_save)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self).activated.connect(self._on_save_as)
         QShortcut(QKeySequence("Ctrl+E"), self).activated.connect(self._on_export)
+
+        # Keyboard shortcuts — edit (Ctrl+C/X/V omitted: conflict with text fields)
+        QShortcut(QKeySequence("Ctrl+U"), self).activated.connect(self._on_undo)
+        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self._on_redo)
 
         # Dirty tracking
         self._controller.geometry_changed.connect(self._mark_dirty)
@@ -452,6 +487,10 @@ class MainWindow(QMainWindow):
         # X-ray tube spectrum chart
         self._spectrum_chart = SpectrumChartWidget(self._material_service)
         tabs.addTab(self._spectrum_chart, t("charts.spectrum", "Spectrum"))
+
+        # Phase 8: Isodose map chart
+        self._isodose_chart = IsodoseChartWidget()
+        tabs.addTab(self._isodose_chart, t("charts.isodose", "Isodose"))
 
         return tabs
 
@@ -598,6 +637,22 @@ class MainWindow(QMainWindow):
         settings.setValue("mainwindow/geometry", self.saveGeometry())
         settings.setValue("mainwindow/state", self.saveState())
 
+        # Save current geometry to DB for session restore
+        try:
+            geo_dict = geometry_to_dict(self._controller.geometry)
+            self._design_repo.set_setting(
+                "last_session_geometry", json.dumps(geo_dict)
+            )
+            # Save current design ID (if any) so reopening links back
+            self._design_repo.set_setting(
+                "last_session_design_id",
+                self._current_design_id or "",
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to save session geometry", exc_info=True
+            )
+
     def _restore_state(self):
         settings = QSettings()
         geometry = settings.value("mainwindow/geometry")
@@ -606,6 +661,28 @@ class MainWindow(QMainWindow):
         state = settings.value("mainwindow/state")
         if state:
             self.restoreState(state)
+
+    def _restore_session(self):
+        """Restore last session geometry from DB on startup."""
+        try:
+            geo_json = self._design_repo.get_setting("last_session_geometry")
+            if not geo_json:
+                return
+            geo_dict = json.loads(geo_json)
+            geometry = dict_to_geometry(geo_dict)
+            self._controller.set_geometry(geometry)
+            self._controller.clear_undo()
+
+            # Restore linked design ID
+            design_id = self._design_repo.get_setting(
+                "last_session_design_id", ""
+            )
+            self._current_design_id = design_id or None
+            self._is_dirty = False
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to restore session geometry", exc_info=True
+            )
 
     # ------------------------------------------------------------------
     # Projection
@@ -683,6 +760,8 @@ class MainWindow(QMainWindow):
             energy_keV=energy,
             num_rays=config.num_rays,
             include_buildup=config.include_buildup,
+            include_air=config.include_air,
+            include_inverse_sq=config.include_inverse_sq,
         )
         worker.progress.connect(self._on_simulation_progress)
         worker.result_ready.connect(self._on_simulation_result)
@@ -703,8 +782,28 @@ class MainWindow(QMainWindow):
         # Compute absolute dose rate at detector
         geo = self._controller.geometry
         sdd_mm = geo.detector.distance_from_source
+
+        # For spectral method, build TubeConfig with current filtration
+        spectrum_gen = None
+        tube_config = None
+        if (geo.source.tube_output_method == "spectral"
+                and self._toolbar.energy_mode == "kVp"):
+            from app.core.spectrum_models import TubeConfig
+            spectrum_gen = self._xray_spectrum
+            tube_config = TubeConfig(
+                target_id=self._toolbar.get_target_id(),
+                kVp=float(self._toolbar.get_slider_raw()),
+                window_type=self._toolbar.get_window_type(),
+                window_thickness_mm=self._toolbar.get_window_thickness_mm(),
+                added_filtration=self._toolbar.get_added_filtration(),
+            )
+
         result.unattenuated_dose_rate_Gy_h = (
-            self._dose_calculator.calculate_unattenuated_dose(geo.source, sdd_mm)
+            self._dose_calculator.calculate_unattenuated_dose(
+                geo.source, sdd_mm,
+                spectrum_gen=spectrum_gen,
+                tube_config=tube_config,
+            )
         )
 
         # Update score card
@@ -753,6 +852,10 @@ class MainWindow(QMainWindow):
         # Phase 7: Auto-trigger scatter if toggle is checked
         if self._toolbar.scatter_button.isChecked():
             self._run_scatter_simulation(result)
+
+        # Phase 8: Auto-trigger isodose if toggle is checked
+        if self._toolbar.isodose_button.isChecked():
+            self._run_isodose(result)
 
     def _replot_beam_profile(self, result) -> None:
         """Plot beam profile with current dose display unit."""
@@ -867,8 +970,9 @@ class MainWindow(QMainWindow):
                         label=f"FWHM={qm.fwhm_mm:.1f}mm  |  "
                               f"{t('charts.shielding_leakage', 'Leakage')}={qm.leakage_avg_pct:.2f}%")
 
-        ax.legend(fontsize=9, facecolor="#1E293B", edgecolor="#475569",
-                  labelcolor="#F8FAFC")
+        if ax.get_legend_handles_labels()[1]:
+            ax.legend(fontsize=9, facecolor="#1E293B", edgecolor="#475569",
+                      labelcolor="#F8FAFC")
         if unit == DoseDisplayUnit.DB:
             # dB: show 0 dB at top, auto-scale bottom to min data
             y_min_db = float(np.min(y_data[y_data > -300])) if np.any(y_data > -300) else -60.0
@@ -1069,7 +1173,7 @@ class MainWindow(QMainWindow):
         worker.setup(
             geometry=geometry,
             energy_keV=energy,
-            num_rays=min(DEFAULT_NUM_RAYS, 100),
+            num_rays=primary_result.num_rays,
             config=config,
             primary_result=primary_result,
         )
@@ -1122,11 +1226,7 @@ class MainWindow(QMainWindow):
         show_scatter = self._cb_show_scatter.isChecked()
         show_combined = self._cb_show_combined.isChecked()
         if not show_scatter and not show_combined:
-            # Nothing to overlay — just redraw legend
-            self._beam_ax.legend(
-                fontsize=9, facecolor="#1E293B", edgecolor="#475569",
-                labelcolor="#F8FAFC",
-            )
+            # Nothing to overlay — just redraw
             self._beam_figure.tight_layout()
             self._beam_canvas.draw()
             return
@@ -1220,10 +1320,11 @@ class MainWindow(QMainWindow):
                     label=t("charts.combined_ps", "Combined (P+S)"),
                 )
 
-        ax.legend(
-            fontsize=9, facecolor="#1E293B", edgecolor="#475569",
-            labelcolor="#F8FAFC",
-        )
+        if ax.get_legend_handles_labels()[1]:
+            ax.legend(
+                fontsize=9, facecolor="#1E293B", edgecolor="#475569",
+                labelcolor="#F8FAFC",
+            )
         self._beam_figure.tight_layout()
         self._beam_canvas.draw()
 
@@ -1234,6 +1335,72 @@ class MainWindow(QMainWindow):
 
     def _on_scatter_finished(self) -> None:
         self._toolbar._btn_simulate.setEnabled(True)
+
+    # ------------------------------------------------------------------
+    # Phase 8: Isodose Map
+    # ------------------------------------------------------------------
+
+    def _run_isodose(self, primary_result) -> None:
+        """Launch isodose computation after primary simulation completes."""
+        geometry = self._controller.geometry
+        energy = self._toolbar.get_energy_keV()
+        cfg = getattr(self, "_last_sim_config", None)
+
+        self.statusBar().showMessage(
+            t("status.isodose_starting", "Starting isodose computation...")
+        )
+
+        worker = IsodoseWorker(self._isodose_engine, self)
+        worker.setup(
+            geometry=geometry,
+            energy_keV=energy,
+            nx=cfg.isodose_nx if cfg else 120,
+            ny=cfg.isodose_ny if cfg else 80,
+            include_buildup=cfg.include_buildup if cfg else True,
+            include_air=cfg.isodose_include_air if cfg else self._toolbar.isodose_include_air,
+            include_inverse_sq=cfg.isodose_include_inverse_sq if cfg else self._toolbar.isodose_include_inverse_sq,
+        )
+        worker.progress.connect(self._on_isodose_progress)
+        worker.result_ready.connect(self._on_isodose_result)
+        worker.error_occurred.connect(self._on_isodose_error)
+        worker.finished.connect(self._on_isodose_finished)
+        worker.finished.connect(worker.deleteLater)
+        self._isodose_worker = worker
+        worker.start()
+
+    def _on_isodose_progress(self, pct: int) -> None:
+        self.statusBar().showMessage(
+            t("status.isodose_progress", "Isodose: {pct}%...").format(pct=pct)
+        )
+
+    def _on_isodose_result(self, result) -> None:
+        """Handle isodose computation result."""
+        # Update canvas overlay
+        self._scene.set_isodose_data(result)
+
+        # Update chart tab
+        self._isodose_chart.update_result(result)
+
+        # Switch to isodose chart tab
+        self._chart_tabs.setCurrentWidget(self._isodose_chart)
+
+        self.statusBar().showMessage(
+            t("status.isodose_done",
+              "Isodose complete — {nx}x{ny} grid, E={energy}keV, t={time}s").format(
+                nx=result.nx,
+                ny=result.ny,
+                energy=f"{result.energy_keV:.0f}",
+                time=f"{result.elapsed_seconds:.2f}",
+            )
+        )
+
+    def _on_isodose_error(self, error: str) -> None:
+        self.statusBar().showMessage(
+            t("status.isodose_error", "Isodose error: {error}").format(error=error)
+        )
+
+    def _on_isodose_finished(self) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # G-3: Multi-energy comparison
@@ -1324,7 +1491,7 @@ class MainWindow(QMainWindow):
         self._properties_panel.set_energy_mode(mode)
 
     def _on_tube_config_changed(self) -> None:
-        """Update spectrum chart when tube parameters change (kVp mode only)."""
+        """Update spectrum chart and toolbar effective energy (kVp mode only)."""
         if self._toolbar.energy_mode != "kVp":
             return
         from app.core.spectrum_models import TubeConfig
@@ -1336,6 +1503,8 @@ class MainWindow(QMainWindow):
             added_filtration=self._toolbar.get_added_filtration(),
         )
         self._spectrum_chart.update_spectrum(config)
+        eff = self._xray_spectrum.effective_energy(config)
+        self._toolbar.set_effective_energy(eff)
 
     # ------------------------------------------------------------------
     # G-10: Customizable quality thresholds
@@ -1382,6 +1551,59 @@ class MainWindow(QMainWindow):
         if not self._is_dirty:
             self._is_dirty = True
             self._update_title()
+
+    # ------------------------------------------------------------------
+    # Edit menu handlers
+    # ------------------------------------------------------------------
+
+    def _on_undo(self) -> None:
+        self._controller.undo()
+
+    def _on_redo(self) -> None:
+        self._controller.redo()
+
+    def _on_cut(self) -> None:
+        target = self._resolve_edit_target()
+        if target:
+            self._controller.cut_selected(target_type=target[0])
+
+    def _on_copy(self) -> None:
+        target = self._resolve_edit_target()
+        if target:
+            self._controller.copy_selected(target_type=target[0])
+            self._update_edit_menu_state()
+
+    def _on_paste(self) -> None:
+        self._controller.paste()
+
+    def _on_delete(self) -> None:
+        target = self._resolve_edit_target()
+        if target:
+            self._controller.delete_selected(target_type=target[0])
+
+    def _resolve_edit_target(self) -> tuple[str, int] | None:
+        """Determine edit target: canvas selection first, then panel fallback."""
+        # Canvas selection
+        sel = self._scene.get_selected_editable()
+        if sel:
+            return sel
+        # Fallback: controller's active selections
+        if self._controller.active_stage_index >= 0:
+            return ("stage", self._controller.active_stage_index)
+        return None
+
+    def _update_edit_menu_state(self) -> None:
+        """Sync Edit menu enabled/disabled state with controller."""
+        self._toolbar.set_undo_enabled(self._controller.can_undo)
+        self._toolbar.set_redo_enabled(self._controller.can_redo)
+        self._toolbar.set_paste_enabled(self._controller.has_clipboard)
+        # Cut/Copy/Delete available when an editable item is selected
+        has_target = self._resolve_edit_target() is not None
+        self._toolbar.set_edit_actions_enabled(has_target)
+
+    # ------------------------------------------------------------------
+    # File menu handlers
+    # ------------------------------------------------------------------
 
     def _on_new(self) -> None:
         """Create a new blank design."""

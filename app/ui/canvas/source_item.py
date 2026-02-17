@@ -13,7 +13,7 @@ from PyQt6.QtGui import (
 )
 
 from app.models.geometry import FocalSpotDistribution
-from app.ui.styles.colors import WARNING
+from app.ui.styles.colors import ACCENT, WARNING
 
 
 ICON_SIZE = 12.0  # scene units (mm)
@@ -30,16 +30,18 @@ class SourceItem(QGraphicsItem):
         super().__init__(parent)
         self._focal_spot_size: float = 1.0  # mm
         self._distribution = FocalSpotDistribution.UNIFORM
+        self._selected: bool = False
         self._on_moved: callable | None = None
-        self._locked: bool = False
+        self._locked: bool = True
         self._x_locked: bool = True
+        self._label_visible: bool = True
         self._dragging: bool = False
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True
         )
         self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setCursor(Qt.CursorShape.ForbiddenCursor)
         self.setZValue(50)
 
     def set_focal_spot(self, size_mm: float) -> None:
@@ -48,6 +50,10 @@ class SourceItem(QGraphicsItem):
 
     def set_distribution(self, dist: FocalSpotDistribution) -> None:
         self._distribution = dist
+        self.update()
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = selected
         self.update()
 
     def set_move_callback(self, callback: callable) -> None:
@@ -72,6 +78,10 @@ class SourceItem(QGraphicsItem):
 
     def set_x_locked(self, locked: bool) -> None:
         self._x_locked = locked
+
+    def set_label_visible(self, visible: bool) -> None:
+        self._label_visible = visible
+        self.update()
 
     def boundingRect(self) -> QRectF:
         s = ICON_SIZE
@@ -125,16 +135,27 @@ class SourceItem(QGraphicsItem):
         painter.setPen(QPen(color, 1))
         painter.drawEllipse(QPointF(0, 0), 2, 2)
 
+        # Selection highlight ring
+        if self._selected:
+            sel_pen = QPen(QColor(ACCENT), 2)
+            sel_pen.setCosmetic(True)
+            sel_pen.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            r = ICON_SIZE * 0.85
+            painter.drawEllipse(QPointF(0, 0), r, r)
+
         # Label
-        painter.setPen(QColor("#F8FAFC"))
-        font = QFont("Segoe UI", 7)
-        painter.setFont(font)
-        dist_tag = "G" if self._distribution == FocalSpotDistribution.GAUSSIAN else "U"
-        painter.drawText(
-            QRectF(-35, s + 2, 70, 12),
-            Qt.AlignmentFlag.AlignCenter,
-            f"Kaynak ({self._focal_spot_size:.1f}mm {dist_tag})",
-        )
+        if self._label_visible:
+            painter.setPen(QColor("#F8FAFC"))
+            font = QFont("Segoe UI", 7)
+            painter.setFont(font)
+            dist_tag = "G" if self._distribution == FocalSpotDistribution.GAUSSIAN else "U"
+            painter.drawText(
+                QRectF(-35, s + 2, 70, 12),
+                Qt.AlignmentFlag.AlignCenter,
+                f"Kaynak ({self._focal_spot_size:.1f}mm {dist_tag})",
+            )
 
     def mousePressEvent(self, event) -> None:
         self._dragging = True
